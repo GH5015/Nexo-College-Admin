@@ -88,10 +88,13 @@ class CollegeRepository(private val dao: CollegeDao) {
                 absences = entity.absences,
                 p1Grade = entity.p1Grade,
                 p1Date = entity.p1Date,
+                p1Reminder = entity.p1Reminder,
                 p2Grade = entity.p2Grade,
                 p2Date = entity.p2Date,
+                p2Reminder = entity.p2Reminder,
                 pfGrade = entity.pfGrade,
                 pfDate = entity.pfDate,
+                pfReminder = entity.pfReminder,
                 assignments = assignments,
                 period = entity.period
             )
@@ -130,9 +133,9 @@ class CollegeRepository(private val dao: CollegeDao) {
             subject.assignments.forEach { 
                 academicEvents.add(AcademicEvent(it.id, it.title, "Disciplina: ${subject.name}", it.date, it.type, subject.id))
             }
-            subject.p1Date?.let { academicEvents.add(AcademicEvent("${subject.id}_p1", "P1: ${subject.name}", "Prova P1", it, EventType.EXAM, subject.id)) }
-            subject.p2Date?.let { academicEvents.add(AcademicEvent("${subject.id}_p2", "P2: ${subject.name}", "Prova P2", it, EventType.EXAM, subject.id)) }
-            subject.pfDate?.let { academicEvents.add(AcademicEvent("${subject.id}_pf", "PF: ${subject.name}", "Prova Final", it, EventType.EXAM, subject.id)) }
+            subject.p1Date?.let { academicEvents.add(AcademicEvent("${subject.id}_p1", "P1: ${subject.name}", "Prova P1", it, EventType.EXAM, subject.id, subject.p1Reminder)) }
+            subject.p2Date?.let { academicEvents.add(AcademicEvent("${subject.id}_p2", "P2: ${subject.name}", "Prova P2", it, EventType.EXAM, subject.id, subject.p2Reminder)) }
+            subject.pfDate?.let { academicEvents.add(AcademicEvent("${subject.id}_pf", "PF: ${subject.name}", "Prova Final", it, EventType.EXAM, subject.id, subject.pfReminder)) }
         }
         _events.value = academicEvents.sortedBy { it.date }
     }
@@ -201,10 +204,13 @@ class CollegeRepository(private val dao: CollegeDao) {
                 absences = 0,
                 p1Grade = null,
                 p1Date = null,
+                p1Reminder = false,
                 p2Grade = null,
                 p2Date = null,
+                p2Reminder = false,
                 pfGrade = null,
                 pfDate = null,
+                pfReminder = false,
                 period = currentPeriod
             )
             dao.insertSubject(entity)
@@ -237,10 +243,13 @@ class CollegeRepository(private val dao: CollegeDao) {
                 absences = absences,
                 p1Grade = p1,
                 p1Date = null,
+                p1Reminder = false,
                 p2Grade = p2,
                 p2Date = null,
+                p2Reminder = false,
                 pfGrade = pf,
                 pfDate = null,
+                pfReminder = false,
                 period = period
             )
             dao.insertSubject(entity)
@@ -295,17 +304,17 @@ class CollegeRepository(private val dao: CollegeDao) {
 
     fun updateGrades(
         subjectId: String, 
-        p1: Double?, p1Date: LocalDate?, 
-        p2: Double?, p2Date: LocalDate?, 
-        pf: Double?, pfDate: LocalDate?
+        p1: Double?, p1Date: LocalDate?, p1Reminder: Boolean,
+        p2: Double?, p2Date: LocalDate?, p2Reminder: Boolean,
+        pf: Double?, pfDate: LocalDate?, pfReminder: Boolean
     ) {
         scope.launch {
             val currentEntity = dao.getAllSubjects().find { it.id == subjectId }
             if (currentEntity != null) {
                 val updated = currentEntity.copy(
-                    p1Grade = p1, p1Date = p1Date,
-                    p2Grade = p2, p2Date = p2Date,
-                    pfGrade = pf, pfDate = pfDate
+                    p1Grade = p1, p1Date = p1Date, p1Reminder = p1Reminder,
+                    p2Grade = p2, p2Date = p2Date, p2Reminder = p2Reminder,
+                    pfGrade = pf, pfDate = pfDate, pfReminder = pfReminder
                 )
                 dao.insertSubject(updated)
                 loadAllData()
@@ -386,10 +395,13 @@ class CollegeRepository(private val dao: CollegeDao) {
                 absences = entity.absences,
                 p1Grade = entity.p1Grade,
                 p1Date = entity.p1Date,
+                p1Reminder = entity.p1Reminder,
                 p2Grade = entity.p2Grade,
                 p2Date = entity.p2Date,
+                p2Reminder = entity.p2Reminder,
                 pfGrade = entity.pfGrade,
                 pfDate = entity.pfDate,
+                pfReminder = entity.pfReminder,
                 assignments = assignments,
                 period = entity.period
             )

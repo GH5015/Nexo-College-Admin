@@ -13,10 +13,13 @@ data class Subject(
     val absences: Int = 0,
     val p1Grade: Double? = null,
     val p1Date: LocalDate? = null,
+    val p1Reminder: Boolean = false,
     val p2Grade: Double? = null,
     val p2Date: LocalDate? = null,
+    val p2Reminder: Boolean = false,
     val pfGrade: Double? = null,
     val pfDate: LocalDate? = null,
+    val pfReminder: Boolean = false,
     val assignments: List<Assignment> = emptyList(),
     val period: String = "2024.1"
 ) {
@@ -90,7 +93,8 @@ data class AcademicEvent(
     val description: String,
     val date: LocalDate,
     val type: EventType,
-    val subjectId: String
+    val subjectId: String,
+    val reminderEnabled: Boolean = false
 )
 
 enum class EventType {

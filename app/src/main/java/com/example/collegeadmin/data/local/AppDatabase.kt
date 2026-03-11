@@ -15,7 +15,7 @@ import androidx.room.*
         GeneratedReviewEntity::class,
         AiStudyPlanEntity::class
     ],
-    version = 20,
+    version = 21,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

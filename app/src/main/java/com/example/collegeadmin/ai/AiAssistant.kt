@@ -10,7 +10,7 @@ import kotlinx.coroutines.withContext
 
 class AiAssistant(apiKey: String) {
     private val generativeModel = GenerativeModel(
-        modelName = "gemini-3-flash-preview", // Atualizado para suporte multimodal estável
+        modelName = "gemini-1.5-flash", // Versão estável com suporte multimodal
         apiKey = apiKey
     )
 
@@ -25,6 +25,21 @@ class AiAssistant(apiKey: String) {
 
     fun askTutorStream(prompt: String): Flow<String> {
         return generativeModel.generateContentStream(prompt).map { it.text ?: "" }
+    }
+
+    suspend fun transcribeAudio(audioBytes: ByteArray): String = withContext(Dispatchers.IO) {
+        val prompt = "Transcreva este áudio de aula para texto de forma clara e organizada. Remova vícios de linguagem e foque no conteúdo técnico abordado."
+        
+        try {
+            val inputContent = content {
+                blob("audio/wav", audioBytes)
+                text(prompt)
+            }
+            val response = generativeModel.generateContent(inputContent)
+            response.text ?: ""
+        } catch (e: Exception) {
+            "Erro na transcrição: ${e.localizedMessage}"
+        }
     }
 
     suspend fun extractHistoryFromImage(bitmap: Bitmap): String = withContext(Dispatchers.IO) {

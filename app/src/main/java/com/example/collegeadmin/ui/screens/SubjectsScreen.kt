@@ -1,5 +1,7 @@
 package com.example.collegeadmin.ui.screens
 
+import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -14,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Assignment
@@ -27,11 +30,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,6 +49,8 @@ import com.example.collegeadmin.ui.components.EmptyStatePlaceholder
 import com.example.collegeadmin.ui.components.HelpPopup
 import com.example.collegeadmin.ui.components.HelpItem
 import kotlinx.coroutines.launch
+import java.io.File
+import java.io.FileOutputStream
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -55,10 +62,20 @@ import java.util.*
 fun SubjectsScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
     val subjects by viewModel.subjects.collectAsState()
     val userInfo by viewModel.userInfo.collectAsState()
+    val saveSuccess by viewModel.saveSuccess.collectAsState()
+    
     var selectedSubject by remember { mutableStateOf<Subject?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var subjectToEdit by remember { mutableStateOf<Subject?>(null) }
     val onMenuClick = LocalIndicatorClick.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(saveSuccess) {
+        if (saveSuccess) {
+            snackbarHostState.showSnackbar("Alterações salvas com sucesso!", duration = SnackbarDuration.Short)
+            viewModel.resetSaveSuccess()
+        }
+    }
 
     var showHelp by remember { mutableStateOf(false) }
 
@@ -98,75 +115,82 @@ fun SubjectsScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
         )
     }
 
-    AnimatedContent(
-        targetState = selectedSubject,
-        transitionSpec = {
-            fadeIn() + slideInHorizontally { it } togetherWith fadeOut() + slideOutHorizontally { -it }
-        },
-        label = "SubjectTransition"
-    ) { subject ->
-        if (subject == null) {
-            Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(paddingValues)) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp)
-                ) {
-                    item { 
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                ScreenIndicator(
-                                    label = "Disciplinas", 
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    onClick = onMenuClick
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                IconButton(onClick = { showHelp = true }) {
-                                    Icon(Icons.AutoMirrored.Filled.HelpOutline, "Ajuda", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
+    Box(modifier = Modifier.fillMaxSize()) {
+        AnimatedContent(
+            targetState = selectedSubject,
+            transitionSpec = {
+                fadeIn() + slideInHorizontally { it } togetherWith fadeOut() + slideOutHorizontally { -it }
+            },
+            label = "SubjectTransition"
+        ) { subject ->
+            if (subject == null) {
+                Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(paddingValues)) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        item { 
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    ScreenIndicator(
+                                        label = "Disciplinas", 
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        onClick = onMenuClick
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    IconButton(onClick = { showHelp = true }) {
+                                        Icon(Icons.AutoMirrored.Filled.HelpOutline, "Ajuda", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
+                                    }
                                 }
+                                Text(
+                                    "Minhas Matérias", 
+                                    style = MaterialTheme.typography.headlineLarge, 
+                                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
+                                    fontWeight = FontWeight.ExtraBold
+                                ) 
                             }
-                            Text(
-                                "Minhas Matérias", 
-                                style = MaterialTheme.typography.headlineLarge, 
-                                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
-                                fontWeight = FontWeight.ExtraBold
-                            ) 
                         }
+                        
+                        if (subjects.isEmpty()) {
+                            item {
+                                EmptyStatePlaceholder("Nenhuma disciplina cadastrada. Toque no + para começar.")
+                            }
+                        } else {
+                            items(subjects) { sub ->
+                                SubjectCardPremium(
+                                    sub, 
+                                    onEdit = { subjectToEdit = sub },
+                                    onDelete = { viewModel.deleteSubject(sub.id) }
+                                ) { selectedSubject = sub }
+                            }
+                        }
+                        item { Spacer(modifier = Modifier.height(100.dp)) }
                     }
                     
-                    if (subjects.isEmpty()) {
-                        item {
-                            EmptyStatePlaceholder("Nenhuma disciplina cadastrada. Toque no + para começar.")
-                        }
-                    } else {
-                        items(subjects) { sub ->
-                            SubjectCardPremium(
-                                sub, 
-                                onEdit = { subjectToEdit = sub },
-                                onDelete = { viewModel.deleteSubject(sub.id) }
-                            ) { selectedSubject = sub }
-                        }
+                    FloatingActionButton(
+                        onClick = { showAddDialog = true },
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = Color.White
+                    ) {
+                        Icon(Icons.Default.Add, "Adicionar Disciplina")
                     }
-                    item { Spacer(modifier = Modifier.height(100.dp)) }
                 }
-                
-                FloatingActionButton(
-                    onClick = { showAddDialog = true },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color.White
-                ) {
-                    Icon(Icons.Default.Add, "Adicionar Disciplina")
-                }
-            }
-        } else {
-            val currentSub = subjects.find { it.id == subject.id }
-            if (currentSub != null) {
-                SubjectDetailScreen(currentSub, viewModel, onBack = { selectedSubject = null })
             } else {
-                selectedSubject = null
+                val currentSub = subjects.find { it.id == subject.id }
+                if (currentSub != null) {
+                    SubjectDetailScreen(currentSub, viewModel, onBack = { selectedSubject = null })
+                } else {
+                    selectedSubject = null
+                }
             }
         }
+        
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp)
+        )
     }
 
     if (showAddDialog) {
@@ -722,10 +746,15 @@ fun SubjectNotesTab(subject: Subject, viewModel: CollegeViewModel) {
         var difficulty by remember { mutableStateOf(Difficulty.MEDIUM) }
         val tempAttachments = remember { mutableStateListOf<String>() }
         
-        val filePicker = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.GetContent()
-        ) { uri: Uri? ->
-            uri?.let { tempAttachments.add(it.toString()) }
+        var isTranscribing by remember { mutableStateOf(false) }
+        val scope = rememberCoroutineScope()
+
+        val audioLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+            if (isGranted) {
+                // Iniciar gravação (Lógica simplificada para fins de UI)
+            }
         }
 
         AlertDialog(
@@ -740,14 +769,38 @@ fun SubjectNotesTab(subject: Subject, viewModel: CollegeViewModel) {
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     )
-                    OutlinedTextField(
-                        value = content, 
-                        onValueChange = { content = it }, 
-                        label = { Text("O que foi visto?") }, 
-                        modifier = Modifier.fillMaxWidth(), 
-                        minLines = 4,
-                        shape = RoundedCornerShape(12.dp)
-                    )
+                    
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = content, 
+                            onValueChange = { content = it }, 
+                            label = { Text("O que foi visto?") }, 
+                            modifier = Modifier.fillMaxWidth(), 
+                            minLines = 5,
+                            shape = RoundedCornerShape(12.dp),
+                            placeholder = { Text(if(isTranscribing) "Transcrevendo áudio..." else "Digite ou grave o conteúdo") }
+                        )
+                        
+                        IconButton(
+                            onClick = { 
+                                audioLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                // Simulação de Transcrição para fins demonstrativos
+                                isTranscribing = true
+                                scope.launch {
+                                    kotlinx.coroutines.delay(2000)
+                                    content += " [Conteúdo transcrito via áudio]"
+                                    isTranscribing = false
+                                }
+                            },
+                            modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp)
+                        ) {
+                            if (isTranscribing) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.Mic, "Gravar Áudio", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
                     
                     Text("Dificuldade do conteúdo", style = MaterialTheme.typography.labelLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -769,7 +822,7 @@ fun SubjectNotesTab(subject: Subject, viewModel: CollegeViewModel) {
                     Text("Anexos (${tempAttachments.size})", style = MaterialTheme.typography.labelLarge)
                     
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(tempAttachments) { uri ->
+                        items(tempAttachments) { uriString ->
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceVariant,
                                 shape = RoundedCornerShape(8.dp)
@@ -781,13 +834,23 @@ fun SubjectNotesTab(subject: Subject, viewModel: CollegeViewModel) {
                                     Icon(Icons.Default.AttachFile, null, modifier = Modifier.size(14.dp))
                                     Spacer(Modifier.width(4.dp))
                                     Text("Arquivo", style = MaterialTheme.typography.labelSmall)
-                                    IconButton(onClick = { tempAttachments.remove(uri) }, modifier = Modifier.size(20.dp)) {
+                                    IconButton(onClick = { tempAttachments.remove(uriString) }, modifier = Modifier.size(20.dp)) {
                                         Icon(Icons.Default.Close, null, modifier = Modifier.size(12.dp))
                                     }
                                 }
                             }
                         }
                         item {
+                            val filePicker = rememberLauncherForActivityResult(
+                                contract = ActivityResultContracts.GetContent()
+                            ) { uri: Uri? ->
+                                uri?.let { sourceUri ->
+                                    val localPath = copyFileToInternalStorage(context, sourceUri)
+                                    if (localPath != null) {
+                                        tempAttachments.add(localPath)
+                                    }
+                                }
+                            }
                             OutlinedIconButton(
                                 onClick = { filePicker.launch("*/*") },
                                 modifier = Modifier.size(32.dp),
@@ -800,17 +863,36 @@ fun SubjectNotesTab(subject: Subject, viewModel: CollegeViewModel) {
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    if (title.isNotBlank()) {
-                        viewModel.saveNote(null, subject.id, null, title, content, LocalDate.now(), tempAttachments.toList(), difficulty)
-                        showAddNote = false
-                    }
-                }) { Text("Adicionar") }
+                Button(
+                    onClick = {
+                        if (title.isNotBlank()) {
+                            viewModel.saveNote(null, subject.id, null, title, content, LocalDate.now(), tempAttachments.toList(), difficulty)
+                            showAddNote = false
+                        }
+                    },
+                    enabled = !isTranscribing
+                ) { Text("Adicionar") }
             },
             dismissButton = {
                 TextButton(onClick = { showAddNote = false }) { Text("Cancelar") }
             }
         )
+    }
+}
+
+fun copyFileToInternalStorage(context: Context, uri: Uri): String? {
+    val fileName = "attach_${System.currentTimeMillis()}_" + (uri.lastPathSegment?.takeLast(10) ?: "file")
+    val destinationFile = File(context.filesDir, fileName)
+    
+    return try {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            FileOutputStream(destinationFile).use { output ->
+                input.copyTo(output)
+            }
+        }
+        destinationFile.absolutePath
+    } catch (e: Exception) {
+        null
     }
 }
 
@@ -823,6 +905,10 @@ fun SubjectGradesTab(subject: Subject, viewModel: CollegeViewModel) {
     var p1Date by remember { mutableStateOf(subject.p1Date) }
     var p2Date by remember { mutableStateOf(subject.p2Date) }
     var pfDate by remember { mutableStateOf(subject.pfDate) }
+
+    var p1Reminder by remember { mutableStateOf(subject.p1Reminder) }
+    var p2Reminder by remember { mutableStateOf(subject.p2Reminder) }
+    var pfReminder by remember { mutableStateOf(subject.pfReminder) }
 
     Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
         // Bloco de Análise Preditiva
@@ -845,21 +931,51 @@ fun SubjectGradesTab(subject: Subject, viewModel: CollegeViewModel) {
                 
                 if (p1.isEmpty() && p2.isEmpty()) {
                     Text("Insira suas notas para calcular quanto você precisa para passar.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else if (p1.isNotEmpty() && p2.isEmpty()) {
-                    val neededFor7 = (14.0 - p1Val).coerceIn(0.0, 10.0)
-                    val neededFor5 = (10.0 - p1Val).coerceIn(0.0, 10.0)
-                    
-                    Text("Você precisa de ${String.format("%.1f", neededFor7)} na P2 para passar direto (média 7.0).", fontWeight = FontWeight.Bold)
-                    Text("Mínimo de ${String.format("%.1f", neededFor5)} para ir para a Final (média 5.0).", style = MaterialTheme.typography.bodySmall)
                 } else {
-                    val currentAvg = (p1Val + p2Val) / 2
-                    if (currentAvg >= 7.0) {
-                        Text("Parabéns! Sua média atual é ${String.format("%.1f", currentAvg)}. Você está aprovado!", color = Color(0xFF10B981), fontWeight = FontWeight.Bold)
-                    } else if (currentAvg >= 5.0) {
-                        val neededPF = (10.0 - currentAvg).coerceIn(0.0, 10.0)
-                        Text("Média atual: ${String.format("%.1f", currentAvg)}. Você precisará de ${String.format("%.1f", neededPF)} na Prova Final.", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold)
-                    } else {
-                        Text("Atenção! Sua média ${String.format("%.1f", currentAvg)} está abaixo do necessário para a final.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                    val p1Entered = p1.isNotEmpty()
+                    val p2Entered = p2.isNotEmpty()
+                    
+                    val (neededGrade, label, color) = when {
+                        p1Entered && !p2Entered -> {
+                            val needed = (14.0 - p1Val).coerceIn(0.0, 10.0)
+                            val c = when {
+                                needed <= 5.0 -> Color(0xFF10B981)
+                                needed <= 7.5 -> Color(0xFFF59E0B)
+                                else -> Color(0xFFF43F5E)
+                            }
+                            Triple(needed, "Necessário na P2 para média 7.0", c)
+                        }
+                        p1Entered && p2Entered && (p1Val + p2Val)/2 < 7.0 -> {
+                            val currentAvg = (p1Val + p2Val) / 2
+                            val needed = (10.0 - currentAvg).coerceIn(0.0, 10.0)
+                            val c = when {
+                                needed <= 5.0 -> Color(0xFF10B981)
+                                needed <= 7.5 -> Color(0xFFF59E0B)
+                                else -> Color(0xFFF43F5E)
+                            }
+                            Triple(needed, "Necessário na Final para média 5.0", c)
+                        }
+                        else -> Triple(0.0, "Você já atingiu a média necessária!", Color(0xFF10B981))
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                            if (neededGrade > 0) {
+                                Text(String.format("%.1f", neededGrade), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = color)
+                            }
+                        }
+                        
+                        LinearProgressIndicator(
+                            progress = { (neededGrade.toFloat() / 10f).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
+                            color = color,
+                            trackColor = color.copy(alpha = 0.1f)
+                        )
+                        
+                        if (neededGrade > 8.0) {
+                            Text("Situação crítica! Foque total nesta disciplina.", style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -869,16 +985,20 @@ fun SubjectGradesTab(subject: Subject, viewModel: CollegeViewModel) {
             label = "Prova P1",
             grade = p1,
             date = p1Date,
+            reminder = p1Reminder,
             onGradeChange = { p1 = it },
-            onDateChange = { p1Date = it }
+            onDateChange = { p1Date = it },
+            onReminderChange = { p1Reminder = it }
         )
         
         GradeInputCard(
             label = "Prova P2",
             grade = p2,
             date = p2Date,
+            reminder = p2Reminder,
             onGradeChange = { p2 = it },
-            onDateChange = { p2Date = it }
+            onDateChange = { p2Date = it },
+            onReminderChange = { p2Reminder = it }
         )
         
         if (subject.needsPF) {
@@ -886,8 +1006,10 @@ fun SubjectGradesTab(subject: Subject, viewModel: CollegeViewModel) {
                 label = "Prova Final (PF)",
                 grade = pf,
                 date = pfDate,
+                reminder = pfReminder,
                 onGradeChange = { pf = it },
-                onDateChange = { pfDate = it }
+                onDateChange = { pfDate = it },
+                onReminderChange = { pfReminder = it }
             )
         }
 
@@ -895,9 +1017,9 @@ fun SubjectGradesTab(subject: Subject, viewModel: CollegeViewModel) {
             onClick = { 
                 viewModel.updateGrades(
                     subject.id, 
-                    p1.toDoubleOrNull(), p1Date,
-                    p2.toDoubleOrNull(), p2Date,
-                    pf.toDoubleOrNull(), pfDate
+                    p1.toDoubleOrNull(), p1Date, p1Reminder,
+                    p2.toDoubleOrNull(), p2Date, p2Reminder,
+                    pf.toDoubleOrNull(), pfDate, pfReminder
                 ) 
             }, 
             modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -916,8 +1038,10 @@ fun GradeInputCard(
     label: String, 
     grade: String, 
     date: LocalDate?, 
+    reminder: Boolean = false,
     onGradeChange: (String) -> Unit, 
-    onDateChange: (LocalDate?) -> Unit
+    onDateChange: (LocalDate?) -> Unit,
+    onReminderChange: (Boolean) -> Unit = {}
 ) {
     var showDatePicker by remember { mutableStateOf(false) }
     val datePickerState = rememberDatePickerState(
@@ -936,12 +1060,18 @@ fun GradeInputCard(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = grade, 
-                    onValueChange = onGradeChange, 
+                    onValueChange = { input ->
+                        val filtered = input.replace(",", ".").filter { it.isDigit() || it == '.' }
+                        if (filtered.count { it == '.' } <= 1) {
+                            onGradeChange(filtered)
+                        }
+                    }, 
                     label = { Text("Nota") }, 
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(16.dp),
                     singleLine = true,
-                    placeholder = { Text("0.0") }
+                    placeholder = { Text("0.0") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                 )
                 
                 OutlinedTextField(
@@ -965,6 +1095,35 @@ fun GradeInputCard(
                         } 
                     }
                 )
+            }
+            
+            if (date != null) {
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.NotificationsActive, 
+                            null, 
+                            modifier = Modifier.size(18.dp),
+                            tint = if (reminder) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Lembrar-me 2 dias antes", 
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (reminder) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
+                        )
+                    }
+                    Switch(
+                        checked = reminder,
+                        onCheckedChange = onReminderChange,
+                        modifier = Modifier.scale(0.8f)
+                    )
+                }
             }
         }
     }

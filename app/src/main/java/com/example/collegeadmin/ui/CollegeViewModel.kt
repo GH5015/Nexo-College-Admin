@@ -28,6 +28,13 @@ class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() 
     val userInfo: StateFlow<UserInfo?> = repository.userInfo
     val allPeriods: StateFlow<List<String>> = repository.allPeriods
 
+    private val _saveSuccess = MutableStateFlow(false)
+    val saveSuccess: StateFlow<Boolean> = _saveSuccess.asStateFlow()
+
+    fun resetSaveSuccess() {
+        _saveSuccess.value = false
+    }
+
     // Cálculo do CR (Coeficiente de Rendimento) Global
     val cr: StateFlow<Double> = subjects.map { list ->
         if (list.isEmpty()) 0.0
@@ -129,11 +136,12 @@ class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() 
 
     fun updateGrades(
         subjectId: String, 
-        p1: Double?, p1Date: LocalDate?, 
-        p2: Double?, p2Date: LocalDate?, 
-        pf: Double?, pfDate: LocalDate?
+        p1: Double?, p1Date: LocalDate?, p1Reminder: Boolean,
+        p2: Double?, p2Date: LocalDate?, p2Reminder: Boolean,
+        pf: Double?, pfDate: LocalDate?, pfReminder: Boolean
     ) {
-        repository.updateGrades(subjectId, p1, p1Date, p2, p2Date, pf, pfDate)
+        repository.updateGrades(subjectId, p1, p1Date, p1Reminder, p2, p2Date, p2Reminder, pf, pfDate, pfReminder)
+        _saveSuccess.value = true
     }
 
     fun addAssignment(subjectId: String, title: String, date: LocalDate, type: EventType) {

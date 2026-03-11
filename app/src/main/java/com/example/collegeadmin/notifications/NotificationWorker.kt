@@ -27,10 +27,11 @@ class NotificationWorker(
         val today = LocalDate.now()
         val now = LocalTime.now()
 
-        // 1. Notificações de Provas e Trabalhos (7 dias e 3 dias antes)
+        // 1. Notificações de Provas e Trabalhos
         events.forEach { event ->
             val daysUntil = ChronoUnit.DAYS.between(today, event.date)
             
+            // Lógica padrão (7 e 3 dias)
             if (daysUntil == 7L || daysUntil == 3L) {
                 val typeLabel = if (event.type == EventType.EXAM) "Prova" else "Trabalho"
                 val timeLabel = if (daysUntil == 7L) "1 semana" else "3 dias"
@@ -39,6 +40,15 @@ class NotificationWorker(
                     title = "Lembrete: $typeLabel em $timeLabel",
                     message = "Você tem uma ${typeLabel.lowercase()} de ${event.title} no dia ${event.date}. Revise seu resumo de IA!",
                     notificationId = event.id.hashCode() + daysUntil.toInt()
+                )
+            }
+            
+            // Lógica Customizada: 2 dias antes (se habilitado pelo usuário)
+            if (event.reminderEnabled && daysUntil == 2L) {
+                helper.showNotification(
+                    title = "Atenção: Prova em 48 horas! 🎯",
+                    message = "Sua prova de ${event.title} é depois de amanhã. Que tal uma sessão de estudos com o Tutor IA?",
+                    notificationId = event.id.hashCode() + 200
                 )
             }
         }

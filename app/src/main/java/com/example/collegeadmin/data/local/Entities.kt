@@ -17,10 +17,13 @@ data class SubjectEntity(
     val absences: Int,
     val p1Grade: Double?,
     val p1Date: LocalDate?,
+    val p1Reminder: Boolean = false,
     val p2Grade: Double?,
     val p2Date: LocalDate?,
+    val p2Reminder: Boolean = false,
     val pfGrade: Double?,
     val pfDate: LocalDate?,
+    val pfReminder: Boolean = false,
     val period: String
 )
 
