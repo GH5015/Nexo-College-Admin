@@ -5,11 +5,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.automirrored.filled.EventNote
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,8 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.ColorPainter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -32,10 +37,21 @@ import com.example.collegeadmin.ui.CollegeViewModel
 import com.example.collegeadmin.ui.components.ScreenIndicator
 import com.example.collegeadmin.ui.components.HelpPopup
 import com.example.collegeadmin.ui.components.HelpItem
+import com.example.collegeadmin.ui.theme.WarningAmber
+import com.example.collegeadmin.ui.theme.PurpleAcent
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.*
+
+data class PriorityItem(
+    val title: String,
+    val subtitle: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val color: Color,
+    val destination: AppDestinations,
+    val buttonText: String = "Ver detalhes"
+)
 
 @Composable
 fun DashboardScreen(
@@ -48,6 +64,7 @@ fun DashboardScreen(
     val events by viewModel.events.collectAsState()
     val userInfo by viewModel.userInfo.collectAsState()
     val notes by viewModel.notes.collectAsState()
+    val semesterProgress by viewModel.semesterProgress.collectAsState()
     val onMenuClick = LocalIndicatorClick.current
     
     var showHelp by remember { mutableStateOf(false) }
@@ -61,35 +78,60 @@ fun DashboardScreen(
     val now = LocalDate.now()
     val currentTime = LocalTime.now()
 
-    val greeting = when (currentTime.hour) {
-        in 5..11 -> "Bom dia"
-        in 12..17 -> "Boa tarde"
-        else -> "Boa noite"
+    val greeting = remember(currentTime.hour) {
+        when (currentTime.hour) {
+            in 5..11 -> "Bom dia"
+            in 12..17 -> "Boa tarde"
+            else -> "Boa noite"
+        }
     }
     
-    val dateString = now.format(DateTimeFormatter.ofPattern("EEEE, dd 'de' MMMM", Locale("pt", "BR")))
-        .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale("pt", "BR")) else it.toString() }
-
-    val urgentReviews = notes.filter { 
-        val reviewDate = it.nextReviewDate ?: it.date.plusDays(1)
-        reviewDate.isBefore(now.plusDays(1)) || it.retentionIndex < 40
-    }.sortedBy { it.retentionIndex }
-
-    val nextExam = events.filter { 
-        it.type == EventType.EXAM && !it.date.isBefore(now) 
-    }.minByOrNull { it.date }
-
-    val todaySessions = sessions.filter { it.dayOfWeek == now.dayOfWeek.value }
-        .sortedBy { it.startTime }
-    
-    val nextSession = todaySessions.find { it.startTime.isAfter(currentTime) }
-
-    val avgProb = if(subjects.isNotEmpty()) subjects.sumOf { it.passingProbability } / subjects.size else 100.0
-    val (statusLabel, statusColor) = when {
-        avgProb >= 70 -> "Estável" to Color(0xFF10B981)
-        avgProb >= 40 -> "Atenção" to Color(0xFFF59E0B)
-        else -> "Risco" to Color(0xFFEF4444)
+    val dateString = remember(now) {
+        now.format(DateTimeFormatter.ofPattern("EEEE, dd 'de' MMMM", Locale.forLanguageTag("pt-BR")))
+            .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.forLanguageTag("pt-BR")) else it.toString() }
     }
+
+    val urgentReviews by remember {
+        derivedStateOf {
+            notes.filter { 
+                val reviewDate = it.nextReviewDate ?: it.date.plusDays(1)
+                reviewDate.isBefore(now.plusDays(1)) || it.retentionIndex < 40
+            }.sortedBy { it.retentionIndex }
+        }
+    }
+
+    val nextExam by remember {
+        derivedStateOf {
+            events.filter { 
+                it.type == EventType.EXAM && !it.date.isBefore(now) 
+            }.minByOrNull { it.date }
+        }
+    }
+
+    val todaySessions by remember {
+        derivedStateOf {
+            sessions.filter { it.dayOfWeek == now.dayOfWeek.value }
+                .sortedBy { it.startTime }
+        }
+    }
+    
+    val nextSession by remember {
+        derivedStateOf {
+            todaySessions.find { it.startTime.isAfter(currentTime) }
+        }
+    }
+
+    val statusData by remember {
+        derivedStateOf {
+            val avgProb = if(subjects.isNotEmpty()) subjects.sumOf { it.passingProbability } / subjects.size else 100.0
+            when {
+                avgProb >= 70 -> "Estável" to Color(0xFF10B981) // Secondary Emerald
+                avgProb >= 40 -> "Atenção" to WarningAmber
+                else -> Color(0xFFF43F5E).let { "Risco" to it } // Error Rose
+            }
+        }
+    }
+    val (statusLabel, statusColor) = statusData
 
     if (showHelp) {
         HelpPopup(
@@ -99,13 +141,13 @@ fun DashboardScreen(
                     "Status Acadêmico",
                     "Acompanhe sua saúde escolar baseada em notas e faltas. Mantenha a bolinha verde!",
                     Icons.Default.Analytics,
-                    Color(0xFF10B981)
+                    MaterialTheme.colorScheme.secondary
                 ),
                 HelpItem(
                     "Card de Prioridade",
                     "O card principal muda sozinho para te avisar o que é mais importante agora: uma prova próxima, uma revisão atrasada ou sua próxima aula.",
                     Icons.Default.Star,
-                    Color(0xFFF59E0B)
+                    WarningAmber
                 ),
                 HelpItem(
                     "Agenda de Hoje",
@@ -135,7 +177,7 @@ fun DashboardScreen(
                     ScreenIndicator(label = "Início", onClick = onMenuClick)
                     Spacer(Modifier.width(8.dp))
                     IconButton(onClick = { showHelp = true }) {
-                        Icon(Icons.Default.HelpOutline, "Ajuda", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
+                        Icon(Icons.AutoMirrored.Filled.HelpOutline, "Ajuda", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
                     }
                 }
                 Spacer(Modifier.height(16.dp))
@@ -173,7 +215,14 @@ fun DashboardScreen(
                         color = MaterialTheme.colorScheme.primaryContainer
                     ) {
                         if (userInfo?.profilePictureUri != null) {
-                            AsyncImage(model = userInfo?.profilePictureUri, contentDescription = "Perfil", modifier = Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
+                            AsyncImage(
+                                model = userInfo?.profilePictureUri, 
+                                contentDescription = "Perfil", 
+                                modifier = Modifier.fillMaxSize().clip(CircleShape), 
+                                contentScale = ContentScale.Crop,
+                                placeholder = ColorPainter(MaterialTheme.colorScheme.primaryContainer),
+                                error = rememberVectorPainter(Icons.Default.Person)
+                            )
                         } else {
                             Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) }
                         }
@@ -183,8 +232,8 @@ fun DashboardScreen(
         }
 
         item {
-            PriorityCard(
-                urgentReview = urgentReviews.firstOrNull(),
+            PriorityPager(
+                urgentReviews = urgentReviews,
                 nextExam = nextExam,
                 nextSession = nextSession,
                 onNavigate = onNavigate
@@ -194,8 +243,8 @@ fun DashboardScreen(
         item {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 SmallStatCard(Modifier.weight(1f), "Aulas hoje", todaySessions.size.toString(), Icons.Default.School, MaterialTheme.colorScheme.primary)
-                SmallStatCard(Modifier.weight(1f), "Trabalhos", events.count { it.type == EventType.ASSIGNMENT && !it.date.isBefore(now) }.toString(), Icons.Default.Assignment, Color(0xFF8B5CF6))
-                SmallStatCard(Modifier.weight(1f), "Faltas", subjects.sumOf { it.absences }.toString(), Icons.Default.Warning, Color(0xFFF59E0B))
+                SmallStatCard(Modifier.weight(1f), "Trabalhos", events.count { it.type == EventType.ASSIGNMENT && !it.date.isBefore(now) }.toString(), Icons.AutoMirrored.Filled.Assignment, PurpleAcent)
+                SmallStatCard(Modifier.weight(1f), "Faltas", subjects.sumOf { it.absences }.toString(), Icons.Default.Warning, WarningAmber)
             }
         }
 
@@ -261,102 +310,149 @@ fun DashboardScreen(
         }
 
         item {
-            userInfo?.let { info ->
-                val totalDays = java.time.temporal.ChronoUnit.DAYS.between(info.periodStart, info.periodEnd).toDouble().coerceAtLeast(1.0)
-                val daysPassed = java.time.temporal.ChronoUnit.DAYS.between(info.periodStart, now).toDouble().coerceIn(0.0, totalDays)
-                val progress = (daysPassed / totalDays).toFloat()
-                
-                Column(Modifier.padding(bottom = 32.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Progresso do Semestre", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text("${(progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Semestre ${(progress * 100).toInt()}% concluído",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
+            Column(Modifier.padding(bottom = 32.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Progresso do Semestre", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text("${(semesterProgress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
+                Spacer(Modifier.height(12.dp))
+                LinearProgressIndicator(
+                    progress = { semesterProgress },
+                    modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Semestre ${(semesterProgress * 100).toInt()}% concluído",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
         }
     }
 }
 
 @Composable
-fun PriorityCard(
-    urgentReview: ClassNote?,
+fun PriorityPager(
+    urgentReviews: List<ClassNote>,
     nextExam: AcademicEvent?,
     nextSession: ClassSession?,
     onNavigate: (AppDestinations) -> Unit
 ) {
-    val (title, sub, icon, color, dest) = when {
-        urgentReview != null -> listOf(
-            "⚠ Revisão Pendente",
-            "${urgentReview.title} • Retenção baixa",
-            Icons.Default.Psychology,
-            Color(0xFFEF4444),
-            AppDestinations.ROUTINE
-        )
-        nextExam != null && java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), nextExam.date) <= 3 -> listOf(
-            "🎯 Prova Próxima",
-            "${nextExam.title} em ${java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), nextExam.date)} dias",
-            Icons.Default.EventNote,
-            Color(0xFFF59E0B),
-            AppDestinations.ROUTINE
-        )
-        nextSession != null -> listOf(
-            "📚 Próxima Aula",
-            "${nextSession.subjectName}\nÀs ${nextSession.startTime} - Sala ${nextSession.room}",
-            Icons.Default.School,
-            Color(0xFF6366F1),
-            AppDestinations.SCHEDULE
-        )
-        else -> listOf(
-            "✅ Tudo em dia",
-            "Nenhuma ação urgente no momento.",
-            Icons.Default.CheckCircle,
-            Color(0xFF10B981),
-            AppDestinations.DASHBOARD
-        )
+    val items by remember(urgentReviews, nextExam, nextSession) {
+        derivedStateOf<List<PriorityItem>> {
+            val list = mutableListOf<PriorityItem>()
+            
+            // Prioridade 1: Provas muito próximas (3 dias)
+            nextExam?.let { exam ->
+                val days = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), exam.date)
+                if (days <= 3) {
+                    list.add(PriorityItem(
+                        title = "🎯 Prova Próxima",
+                        subtitle = "${exam.title} em $days dias",
+                        icon = Icons.AutoMirrored.Filled.EventNote,
+                        color = WarningAmber,
+                        destination = AppDestinations.ROUTINE
+                    ))
+                }
+            }
+
+            // Prioridade 2: Revisões críticas
+            urgentReviews.take(2).forEach { review ->
+                list.add(PriorityItem(
+                    title = "⚠ Revisão Pendente",
+                    subtitle = "${review.title} • Retenção baixa",
+                    icon = Icons.Default.Psychology,
+                    color = Color(0xFFF43F5E), // Error Rose
+                    destination = AppDestinations.ROUTINE,
+                    buttonText = "Revisar agora"
+                ))
+            }
+            
+            // Prioridade 3: Próxima aula
+            nextSession?.let { session ->
+                list.add(PriorityItem(
+                    title = "📚 Próxima Aula",
+                    subtitle = "${session.subjectName}\nÀs ${session.startTime} - Sala ${session.room}",
+                    icon = Icons.Default.School,
+                    color = Color(0xFF6366F1), // Primary Indigo
+                    destination = AppDestinations.SCHEDULE
+                ))
+            }
+            
+            if (list.isEmpty()) {
+                list.add(PriorityItem(
+                    title = "✅ Tudo em dia",
+                    subtitle = "Nenhuma ação urgente no momento.",
+                    icon = Icons.Default.CheckCircle,
+                    color = Color(0xFF10B981), // Secondary Emerald
+                    destination = AppDestinations.DASHBOARD
+                ))
+            }
+            list
+        }
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable { onNavigate(dest as AppDestinations) },
-        shape = RoundedCornerShape(32.dp),
-        colors = CardDefaults.cardColors(containerColor = (color as Color).copy(alpha = 0.1f))
-    ) {
-        Row(Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(title as String, style = MaterialTheme.typography.labelLarge, color = color, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                Text(sub as String, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-                Spacer(Modifier.height(16.dp))
-                Surface(
-                    color = color,
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        text = if (dest == AppDestinations.ROUTINE) "Revisar agora" else "Ver detalhes",
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
+    val pagerState = rememberPagerState(pageCount = { items.size })
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxWidth(),
+            pageSpacing = 16.dp
+        ) { page ->
+            val item = items[page]
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable { onNavigate(item.destination) },
+                shape = RoundedCornerShape(32.dp),
+                colors = CardDefaults.cardColors(containerColor = item.color.copy(alpha = 0.1f))
+            ) {
+                Row(Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(item.title, style = MaterialTheme.typography.labelLarge, color = item.color, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        Text(item.subtitle, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                        Spacer(Modifier.height(16.dp))
+                        Surface(
+                            color = item.color,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = item.buttonText,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = item.icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp).alpha(0.2f),
+                        tint = item.color
                     )
                 }
             }
-            Icon(
-                imageVector = icon as androidx.compose.ui.graphics.vector.ImageVector,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp).alpha(0.2f),
-                tint = color
-            )
+        }
+        
+        if (items.size > 1) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                repeat(items.size) { iteration ->
+                    val color = if (pagerState.currentPage == iteration) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                    Box(
+                        modifier = Modifier
+                            .padding(2.dp)
+                            .clip(CircleShape)
+                            .background(color)
+                            .size(6.dp)
+                    )
+                }
+            }
         }
     }
 }

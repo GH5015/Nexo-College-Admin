@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.temporal.ChronoUnit
 
 class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() {
     val subjects: StateFlow<List<Subject>> = repository.subjects
@@ -32,6 +33,17 @@ class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() 
         if (list.isEmpty()) 0.0
         else list.map { it.averageGrade }.average()
     }.asStateFlow(0.0)
+
+    // Cálculo do Progresso do Semestre (Lógica de Negócio movida para o ViewModel)
+    val semesterProgress: StateFlow<Float> = userInfo.map { info ->
+        if (info == null) 0f
+        else {
+            val now = LocalDate.now()
+            val totalDays = ChronoUnit.DAYS.between(info.periodStart, info.periodEnd).toDouble().coerceAtLeast(1.0)
+            val daysPassed = ChronoUnit.DAYS.between(info.periodStart, now).toDouble().coerceIn(0.0, totalDays)
+            (daysPassed / totalDays).toFloat()
+        }
+    }.asStateFlow(0f)
 
     private fun <T> kotlinx.coroutines.flow.Flow<T>.asStateFlow(initialValue: T): StateFlow<T> {
         val flow = MutableStateFlow(initialValue)

@@ -18,6 +18,7 @@ val TextBody = Color(0xFF475569)
 val WarningAmber = Color(0xFFF59E0B)
 val ErrorRose = Color(0xFFF43F5E)
 val InfoSky = Color(0xFF0EA5E9)
+val PurpleAcent = Color(0xFF8B5CF6)
 
 // Dark Mode - "Deep Midnight"
 val DarkBg = Color(0xFF020617)
