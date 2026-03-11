@@ -32,6 +32,11 @@ class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() 
     val userInfo: StateFlow<UserInfo?> = repository.userInfo
     val allPeriods: StateFlow<List<String>> = repository.allPeriods
 
+    // Mapa de matérias para acesso O(1) por ID
+    val subjectsMap: StateFlow<Map<String, Subject>> = subjects.map { list ->
+        list.associateBy { it.id }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     private val _saveSuccess = MutableStateFlow(false)
     val saveSuccess: StateFlow<Boolean> = _saveSuccess.asStateFlow()
 
@@ -56,7 +61,7 @@ class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() 
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
 
-    // Agrupamento de sessões por semana para o Cronograma (Lógica de Negócio movida da UI)
+    // Agrupamento de sessões por semana para o Cronograma
     val fullSchedule: StateFlow<Map<Int, List<CalendarDay>>> = combine(sessions, userInfo) { sessionList, info ->
         if (info == null) emptyMap<Int, List<CalendarDay>>()
         else {
@@ -106,6 +111,49 @@ class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() 
             }
             daysInWeek
         }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Lógica de Estudo (StudySessions) otimizada com subjectsMap
+    val studyList: StateFlow<List<StudySession>> = combine(notes, subjectsMap) { noteList, subjectMap ->
+        val today = LocalDate.now()
+        noteList
+            .groupBy { it.subjectId to it.title.trim() }
+            .mapNotNull { (group, groupNotes) ->
+                val subjectId = group.first
+                val latestNote = groupNotes.maxByOrNull { it.date } ?: return@mapNotNull null
+                
+                val reviewDate = latestNote.nextReviewDate ?: run {
+                    val daysSinceLearn = ChronoUnit.DAYS.between(latestNote.date, today)
+                    when {
+                        daysSinceLearn < 1 -> latestNote.date.plusDays(1)
+                        daysSinceLearn < 7 -> latestNote.date.plusDays(7)
+                        daysSinceLearn < 30 -> latestNote.date.plusDays(30)
+                        else -> null
+                    }
+                }
+
+                if (reviewDate != null) {
+                    val subject = subjectMap[subjectId]
+                    val combinedContent = groupNotes.sortedBy { it.date }.joinToString("\n\n---\n\n") { it.content }
+                    val representativeNote = latestNote.copy(content = combinedContent)
+                    StudySession(representativeNote, subject, reviewDate)
+                } else null
+            }.sortedBy { it.reviewDate }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val overdueStudySessions: StateFlow<List<StudySession>> = studyList.map { list ->
+        val today = LocalDate.now()
+        list.filter { it.reviewDate.isBefore(today) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val todayStudySessions: StateFlow<List<StudySession>> = studyList.map { list ->
+        val today = LocalDate.now()
+        list.filter { it.reviewDate.isEqual(today) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val upcomingStudySessions: StateFlow<List<StudySession>> = studyList.map { list ->
+        val today = LocalDate.now()
+        list.filter { it.reviewDate.isAfter(today) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _selectedSession = MutableStateFlow<ClassSession?>(null)

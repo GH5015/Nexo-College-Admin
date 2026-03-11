@@ -1,6 +1,7 @@
 package com.example.collegeadmin.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -159,7 +160,7 @@ fun RoutineScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
             dragHandle = { BottomSheetDefaults.DragHandle() },
             containerColor = MaterialTheme.colorScheme.surface
         ) {
-            StudyTab(viewModel)
+            StudyTab(viewModel, onDismiss = { showStudyTab = false })
         }
     }
 }
@@ -581,38 +582,18 @@ fun StudyPlanTab(viewModel: CollegeViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StudyTab(viewModel: CollegeViewModel) {
-    val notes by viewModel.notes.collectAsState()
-    val subjects by viewModel.subjects.collectAsState()
-    val today = LocalDate.now()
-
-    val studyList = notes
-        .groupBy { it.subjectId to it.title.trim() }
-        .mapNotNull { (group, groupNotes) ->
-            val subjectId = group.first
-            val latestNote = groupNotes.maxByOrNull { it.date } ?: return@mapNotNull null
-            
-            val reviewDate = latestNote.nextReviewDate ?: run {
-                val daysSinceLearn = ChronoUnit.DAYS.between(latestNote.date, today)
-                when {
-                    daysSinceLearn < 1 -> latestNote.date.plusDays(1)
-                    daysSinceLearn < 7 -> latestNote.date.plusDays(7)
-                    daysSinceLearn < 30 -> latestNote.date.plusDays(30)
-                    else -> null
-                }
-            }
-
-            if (reviewDate != null) {
-                val subject = subjects.find { it.id == subjectId }
-                val combinedContent = groupNotes.sortedBy { it.date }.joinToString("\n\n---\n\n") { it.content }
-                val representativeNote = latestNote.copy(content = combinedContent)
-                StudySession(representativeNote, subject, reviewDate)
-            } else null
-        }.sortedBy { it.reviewDate }
-
-    val overdue = studyList.filter { it.reviewDate.isBefore(today) }
-    val forToday = studyList.filter { it.reviewDate.isEqual(today) }
-    val upcoming = studyList.filter { it.reviewDate.isAfter(today) }
+fun StudyTab(viewModel: CollegeViewModel, onDismiss: () -> Unit) {
+    val studyList by viewModel.studyList.collectAsState()
+    val overdue by viewModel.overdueStudySessions.collectAsState()
+    val forToday by viewModel.todayStudySessions.collectAsState()
+    val upcoming by viewModel.upcomingStudySessions.collectAsState()
+    
+    // Simulação de carregamento (Skeleton)
+    var isProcessing by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(800) // Pequeno delay para o skeleton ser visível
+        isProcessing = false
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(16.dp))
@@ -629,12 +610,23 @@ fun StudyTab(viewModel: CollegeViewModel) {
 
         Spacer(Modifier.height(24.dp))
 
-        if (studyList.isEmpty()) {
+        if (isProcessing) {
+            StudySkeletonLoading()
+        } else if (studyList.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.HistoryEdu, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                     Spacer(Modifier.height(16.dp))
-                    Text("Comece a anotar suas aulas para ver seu cronograma.", color = MaterialTheme.colorScheme.outline)
+                    Text("Comece a anotar suas aulas para ver seu cronograma.", color = MaterialTheme.colorScheme.outline, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(24.dp))
+                    Button(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Add, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Criar minha primeira nota")
+                    }
                 }
             }
         } else {
@@ -663,6 +655,32 @@ fun StudyTab(viewModel: CollegeViewModel) {
 }
 
 @Composable
+fun StudySkeletonLoading() {
+    val infiniteTransition = rememberInfiniteTransition(label = "skeleton")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        repeat(3) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
+            )
+        }
+    }
+}
+
+@Composable
 fun StudySectionHeader(title: String, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
         Box(Modifier.size(4.dp, 16.dp).background(color, CircleShape))
@@ -675,7 +693,6 @@ fun StudySectionHeader(title: String, color: Color) {
 @Composable
 fun StudyReviewCard(session: StudySession, viewModel: CollegeViewModel) {
     var isReviewing by remember { mutableStateOf(false) }
-    var showDifficultyDialog by remember { mutableStateOf(false) }
     val today = LocalDate.now()
     val daysUntil = ChronoUnit.DAYS.between(today, session.reviewDate)
     
@@ -711,12 +728,7 @@ fun StudyReviewCard(session: StudySession, viewModel: CollegeViewModel) {
                 Spacer(Modifier.width(16.dp))
 
                 Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(session.note.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1, modifier = Modifier.weight(1f))
-                        IconButton(onClick = { showDifficultyDialog = true }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Settings, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.outline)
-                        }
-                    }
+                    Text(session.note.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                     Text(session.subject?.name ?: "Matéria", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
 
@@ -788,40 +800,6 @@ fun StudyReviewCard(session: StudySession, viewModel: CollegeViewModel) {
                 }
             }
         }
-    }
-
-    if (showDifficultyDialog) {
-        AlertDialog(
-            onDismissRequest = { showDifficultyDialog = false },
-            title = { Text("Ajustar Dificuldade") },
-            text = { Text("Como você avalia este conteúdo? Isso afetará os intervalos das próximas revisões.") },
-            confirmButton = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Difficulty.entries.forEach { diff ->
-                        Button(
-                            onClick = {
-                                viewModel.updateNoteDifficulty(session.note.subjectId, session.note.title, diff)
-                                showDifficultyDialog = false
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = when(diff) {
-                                    Difficulty.EASY -> Color(0xFF10B981)
-                                    Difficulty.MEDIUM -> Color(0xFFF59E0B)
-                                    Difficulty.HARD -> Color(0xFFEF4444)
-                                }
-                            )
-                        ) {
-                            Text(when(diff) {
-                                Difficulty.EASY -> "Fácil (+3 dias)"
-                                Difficulty.MEDIUM -> "Média (Padrão)"
-                                Difficulty.HARD -> "Difícil (-2 dias)"
-                            })
-                        }
-                    }
-                }
-            }
-        )
     }
 
     if (isReviewing) {
@@ -970,6 +948,37 @@ fun ReviewFlow(session: StudySession, viewModel: CollegeViewModel, onFinish: () 
                                 "Você acertou $correctCount de ${quizQuestions.size} questões!",
                                 style = MaterialTheme.typography.titleMedium
                             )
+                        }
+
+                        Spacer(Modifier.height(24.dp))
+                        Text("Quão difícil foi essa revisão?", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Difficulty.entries.forEach { diff ->
+                                Button(
+                                    onClick = { viewModel.updateNoteDifficulty(session.note.subjectId, session.note.title, diff) },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = when(diff) {
+                                            Difficulty.EASY -> if (session.note.difficulty == diff) Color(0xFF10B981) else Color(0xFF10B981).copy(alpha = 0.6f)
+                                            Difficulty.MEDIUM -> if (session.note.difficulty == diff) Color(0xFFF59E0B) else Color(0xFFF59E0B).copy(alpha = 0.6f)
+                                            Difficulty.HARD -> if (session.note.difficulty == diff) Color(0xFFEF4444) else Color(0xFFEF4444).copy(alpha = 0.6f)
+                                        }
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp)
+                                ) {
+                                    Text(
+                                        text = when(diff) {
+                                            Difficulty.EASY -> "Fácil"
+                                            Difficulty.MEDIUM -> "Média"
+                                            Difficulty.HARD -> "Difícil"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            }
                         }
 
                         Spacer(Modifier.height(24.dp))
@@ -1240,10 +1249,4 @@ data class QuizQuestion(
     val question: String,
     val options: List<String>,
     val correctIndex: Int
-)
-
-data class StudySession(
-    val note: ClassNote,
-    val subject: Subject?,
-    val reviewDate: LocalDate
 )

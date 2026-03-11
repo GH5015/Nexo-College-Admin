@@ -70,7 +70,9 @@ data class NoteEntity(
     val nextReviewDate: LocalDate? = null,
     val totalReviews: Int = 0,
     val successfulReviews: Int = 0,
-    val lastReviewDate: LocalDate? = null
+    val lastReviewDate: LocalDate? = null,
+    val easeFactor: Double = 2.5,
+    val lastInterval: Int = 0
 )
 
 @Entity(tableName = "user_info")

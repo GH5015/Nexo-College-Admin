@@ -109,7 +109,7 @@ class CollegeRepository(private val dao: CollegeDao) {
         }
 
         _notes.value = noteEntities.filter { it.subjectId in activeSubjectIds }.map { 
-            ClassNote(it.id, it.subjectId, it.sessionId, it.title, it.content, it.date, it.attachments, it.difficulty, it.reviewStage, it.nextReviewDate, it.totalReviews, it.successfulReviews, it.lastReviewDate)
+            ClassNote(it.id, it.subjectId, it.sessionId, it.title, it.content, it.date, it.attachments, it.difficulty, it.reviewStage, it.nextReviewDate, it.totalReviews, it.successfulReviews, it.lastReviewDate, it.easeFactor, it.lastInterval)
         }
         
         updateEvents()
@@ -449,37 +449,33 @@ class CollegeRepository(private val dao: CollegeDao) {
     fun updateNoteReviewAfterQuiz(subjectId: String, title: String, isCorrect: Boolean) {
         scope.launch {
             val notesToUpdate = dao.getAllNotes().filter { it.subjectId == subjectId && it.title.trim() == title.trim() }
-            val intervals = listOf(1, 3, 7, 15, 30)
             
             notesToUpdate.forEach { note ->
-                var currentStage = note.reviewStage
-                val difficulty = note.difficulty
+                // Algoritmo SM-2 Simplificado
+                val q = if (isCorrect) 5 else 2 // Qualidade da resposta (0-5). 5=perfeito, 2=erro fácil.
                 
-                val newTotal = note.totalReviews + 1
-                val newSuccess = if (isCorrect) note.successfulReviews + 1 else note.successfulReviews
-
-                if (isCorrect) {
-                    currentStage = (currentStage + 1).coerceAtMost(intervals.size - 1)
-                } else {
-                    currentStage = (currentStage - 1).coerceAtLeast(0)
+                var newEaseFactor = note.easeFactor + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
+                if (newEaseFactor < 1.3) newEaseFactor = 1.3
+                
+                var newStage = if (isCorrect) note.reviewStage + 1 else 0
+                
+                val newInterval = when {
+                    !isCorrect -> 1
+                    newStage == 1 -> 1
+                    newStage == 2 -> 6
+                    else -> (note.lastInterval * newEaseFactor).toInt().coerceAtLeast(1)
                 }
 
-                val baseDays = intervals[currentStage]
-                val adjustment = when(difficulty) {
-                    Difficulty.EASY -> 3
-                    Difficulty.MEDIUM -> 0
-                    Difficulty.HARD -> -2
-                }
-                
-                val finalDays = (baseDays + adjustment).coerceAtLeast(1)
-                val nextDate = LocalDate.now().plusDays(finalDays.toLong())
+                val nextDate = LocalDate.now().plusDays(newInterval.toLong())
                 
                 dao.insertNote(note.copy(
-                    reviewStage = currentStage,
+                    reviewStage = newStage,
                     nextReviewDate = nextDate,
-                    totalReviews = newTotal,
-                    successfulReviews = newSuccess,
-                    lastReviewDate = LocalDate.now()
+                    totalReviews = note.totalReviews + 1,
+                    successfulReviews = if (isCorrect) note.successfulReviews + 1 else note.successfulReviews,
+                    lastReviewDate = LocalDate.now(),
+                    easeFactor = newEaseFactor,
+                    lastInterval = newInterval
                 ))
             }
             loadAllData()

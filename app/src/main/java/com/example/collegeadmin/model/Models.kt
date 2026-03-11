@@ -121,7 +121,9 @@ data class ClassNote(
     val nextReviewDate: LocalDate? = null,
     val totalReviews: Int = 0,
     val successfulReviews: Int = 0,
-    val lastReviewDate: LocalDate? = null
+    val lastReviewDate: LocalDate? = null,
+    val easeFactor: Double = 2.5,
+    val lastInterval: Int = 0
 ) {
     val retentionIndex: Double
         get() {
@@ -137,6 +139,12 @@ data class ClassNote(
 enum class Difficulty {
     EASY, MEDIUM, HARD
 }
+
+data class StudySession(
+    val note: ClassNote,
+    val subject: Subject?,
+    val reviewDate: LocalDate
+)
 
 data class UserInfo(
     val name: String,
