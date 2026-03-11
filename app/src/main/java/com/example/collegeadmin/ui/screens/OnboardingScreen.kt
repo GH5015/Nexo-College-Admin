@@ -256,18 +256,40 @@ fun StepProfile(
 
         Column(modifier = Modifier.fillMaxWidth()) {
             Text("Turno das aulas", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 shifts.forEach { s ->
                     val isSelected = shift == s
+                    val (icon, label) = when (s) {
+                        "Manhã" -> Icons.Default.WbSunny to "Manhã"
+                        "Tarde" -> Icons.Default.CloudQueue to "Tarde"
+                        else -> Icons.Default.NightsStay to "Noite"
+                    }
+                    
                     Surface(
-                        modifier = Modifier.weight(1f).height(48.dp).clickable { onShiftChange(s) },
-                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f).height(70.dp).clickable { onShiftChange(s) },
+                        shape = RoundedCornerShape(16.dp),
                         border = if (!isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)) else null,
-                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                        tonalElevation = if (isSelected) 0.dp else 2.dp
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(s, color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if(isSelected) FontWeight.Bold else FontWeight.Normal)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(8.dp)
+                        ) {
+                            Icon(
+                                icon, null, 
+                                modifier = Modifier.size(20.dp),
+                                tint = if (isSelected) Color.White else MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                label, 
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = if(isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
                         }
                     }
                 }
@@ -403,8 +425,7 @@ fun HistoryEntryScreen(
     var isAiLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val apiKey = "AIzaSyAQMyzTBaQ8zBy7J_-sRF84zpbuPhZHyNU"
-    val assistant = remember { AiAssistant(apiKey) }
+    val assistant = remember { AiAssistant() }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -467,11 +488,11 @@ fun HistoryEntryScreen(
                 }
             )
         }
-    ) { padding ->
+    ) { paddingValue ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(paddingValue)
                 .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)

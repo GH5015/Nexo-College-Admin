@@ -1,6 +1,7 @@
 package com.example.collegeadmin.ai
 
 import android.graphics.Bitmap
+import com.example.collegeadmin.BuildConfig
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
@@ -8,9 +9,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
-class AiAssistant(apiKey: String) {
+class AiAssistant(apiKey: String = BuildConfig.GEMINI_API_KEY) {
     private val generativeModel = GenerativeModel(
-        modelName = "gemini-3-flash-preview ", // Versão estável com suporte multimodal
+        modelName = "gemini-3-flash-preview", // Versão estável com suporte multimodal
         apiKey = apiKey
     )
 
