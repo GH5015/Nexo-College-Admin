@@ -10,14 +10,18 @@ import com.example.collegeadmin.model.*
 import com.example.collegeadmin.data.local.AiStudySummaryEntity
 import com.example.collegeadmin.data.local.GeneratedReviewEntity
 import com.example.collegeadmin.data.local.AiStudyPlanEntity
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
+
+data class CalendarDay(
+    val date: LocalDate,
+    val sessions: List<ClassSession>,
+    val isPast: Boolean
+)
 
 class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() {
     val subjects: StateFlow<List<Subject>> = repository.subjects
@@ -39,9 +43,9 @@ class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() 
     val cr: StateFlow<Double> = subjects.map { list ->
         if (list.isEmpty()) 0.0
         else list.map { it.averageGrade }.average()
-    }.asStateFlow(0.0)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    // Cálculo do Progresso do Semestre (Lógica de Negócio movida para o ViewModel)
+    // Cálculo do Progresso do Semestre
     val semesterProgress: StateFlow<Float> = userInfo.map { info ->
         if (info == null) 0f
         else {
@@ -50,15 +54,59 @@ class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() 
             val daysPassed = ChronoUnit.DAYS.between(info.periodStart, now).toDouble().coerceIn(0.0, totalDays)
             (daysPassed / totalDays).toFloat()
         }
-    }.asStateFlow(0f)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
 
-    private fun <T> kotlinx.coroutines.flow.Flow<T>.asStateFlow(initialValue: T): StateFlow<T> {
-        val flow = MutableStateFlow(initialValue)
-        viewModelScope.launch {
-            this@asStateFlow.collect { flow.value = it }
+    // Agrupamento de sessões por semana para o Cronograma (Lógica de Negócio movida da UI)
+    val fullSchedule: StateFlow<Map<Int, List<CalendarDay>>> = combine(sessions, userInfo) { sessionList, info ->
+        if (info == null) emptyMap<Int, List<CalendarDay>>()
+        else {
+            val scheduleMap = mutableMapOf<Int, MutableList<CalendarDay>>()
+            val totalWeeks = ChronoUnit.WEEKS.between(info.periodStart, info.periodEnd).toInt()
+            
+            for (weekIndex in 0..totalWeeks) {
+                val weekStartDate = info.periodStart.plusWeeks(weekIndex.toLong())
+                if (weekStartDate.isAfter(info.periodEnd)) continue
+                
+                val daysInWeek = mutableListOf<CalendarDay>()
+                for (dayOffset in 0..6) {
+                    val currentDate = weekStartDate.plusDays(dayOffset.toLong())
+                    if (currentDate.isAfter(info.periodEnd)) continue
+                    
+                    val daySessions = sessionList.filter { it.dayOfWeek == currentDate.dayOfWeek.value }
+                        .sortedBy { it.startTime }
+                    
+                    if (daySessions.isNotEmpty()) {
+                        daysInWeek.add(CalendarDay(currentDate, daySessions, currentDate.isBefore(LocalDate.now())))
+                    }
+                }
+                if (daysInWeek.isNotEmpty()) {
+                    scheduleMap[weekIndex + 1] = daysInWeek
+                }
+            }
+            scheduleMap
         }
-        return flow.asStateFlow()
-    }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    // Sessões da semana atual
+    val currentWeekSchedule: StateFlow<List<CalendarDay>> = combine(sessions, userInfo) { sessionList, info ->
+        if (info == null) emptyList<CalendarDay>()
+        else {
+            val today = LocalDate.now()
+            val monday = today.with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+            val daysInWeek = mutableListOf<CalendarDay>()
+            
+            for (i in 0..5) { // Segunda a Sábado
+                val currentDate = monday.plusDays(i.toLong())
+                val daySessions = sessionList.filter { it.dayOfWeek == currentDate.dayOfWeek.value }
+                    .sortedBy { it.startTime }
+                
+                if (daySessions.isNotEmpty()) {
+                    daysInWeek.add(CalendarDay(currentDate, daySessions, currentDate.isBefore(today)))
+                }
+            }
+            daysInWeek
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _selectedSession = MutableStateFlow<ClassSession?>(null)
     val selectedSession: StateFlow<ClassSession?> = _selectedSession.asStateFlow()
