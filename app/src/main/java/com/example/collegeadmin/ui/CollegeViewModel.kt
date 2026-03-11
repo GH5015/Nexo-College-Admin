@@ -31,6 +31,51 @@ class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() 
     val notes: StateFlow<List<ClassNote>> = repository.notes
     val userInfo: StateFlow<UserInfo?> = repository.userInfo
     val allPeriods: StateFlow<List<String>> = repository.allPeriods
+    
+    // Chat IA State with UI persistence for streaming
+    private val _uiChatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val chatMessages: StateFlow<List<ChatMessage>> = _uiChatMessages.asStateFlow()
+
+    init {
+        // Initialize UI chat from persisted repository chat
+        viewModelScope.launch {
+            repository.chatMessages.collect { persistedMessages ->
+                // Only update from DB if we are not in the middle of a streaming session
+                // Or merge them carefully. For simplicity, just sync initially.
+                if (_uiChatMessages.value.isEmpty() || _uiChatMessages.value.size < persistedMessages.size) {
+                    _uiChatMessages.value = persistedMessages
+                }
+            }
+        }
+    }
+
+    fun addChatMessage(text: String, isUser: Boolean, persist: Boolean = true) {
+        if (persist) {
+            repository.addChatMessage(text, isUser)
+        } else {
+            _uiChatMessages.value = _uiChatMessages.value + ChatMessage(text, isUser)
+        }
+    }
+
+    fun updateLastMessage(text: String) {
+        val current = _uiChatMessages.value.toMutableList()
+        if (current.isNotEmpty()) {
+            current[current.size - 1] = ChatMessage(text, current.last().isUser)
+            _uiChatMessages.value = current
+        }
+    }
+
+    fun persistLastAiMessage() {
+        val last = _uiChatMessages.value.lastOrNull()
+        if (last != null && !last.isUser) {
+            repository.addChatMessage(last.text, last.isUser)
+        }
+    }
+
+    fun clearChat() {
+        repository.clearChatHistory()
+        _uiChatMessages.value = emptyList()
+    }
 
     // Mapa de matérias para acesso O(1) por ID
     val subjectsMap: StateFlow<Map<String, Subject>> = subjects.map { list ->

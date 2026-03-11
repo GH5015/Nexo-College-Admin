@@ -36,6 +36,9 @@ class CollegeRepository(private val dao: CollegeDao) {
     private val _allPeriods = MutableStateFlow<List<String>>(emptyList())
     val allPeriods: StateFlow<List<String>> = _allPeriods.asStateFlow()
 
+    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
+
     private fun <T> emptyFlowList(): List<T> = emptyList()
 
     init {
@@ -51,6 +54,7 @@ class CollegeRepository(private val dao: CollegeDao) {
         val taskEntities = dao.getAllTasks()
         val noteEntities = dao.getAllNotes()
         val allAssignments = dao.getAllAssignments()
+        val chatEntities = dao.getAllChatMessages()
 
         _userInfo.value = userEntity?.let { 
             UserInfo(it.name, it.course, it.shift, it.currentPeriod, it.periodStart, it.periodEnd, it.profilePictureUri, it.showHelp)
@@ -111,6 +115,8 @@ class CollegeRepository(private val dao: CollegeDao) {
         _notes.value = noteEntities.filter { it.subjectId in activeSubjectIds }.map { 
             ClassNote(it.id, it.subjectId, it.sessionId, it.title, it.content, it.date, it.attachments, it.difficulty, it.reviewStage, it.nextReviewDate, it.totalReviews, it.successfulReviews, it.lastReviewDate, it.easeFactor, it.lastInterval)
         }
+
+        _chatMessages.value = chatEntities.map { ChatMessage(it.text, it.isUser) }
         
         updateEvents()
     }
@@ -478,6 +484,21 @@ class CollegeRepository(private val dao: CollegeDao) {
                     lastInterval = newInterval
                 ))
             }
+            loadAllData()
+        }
+    }
+
+    // Chat History
+    fun addChatMessage(text: String, isUser: Boolean) {
+        scope.launch {
+            dao.insertChatMessage(ChatMessageEntity(text = text, isUser = isUser))
+            loadAllData()
+        }
+    }
+
+    fun clearChatHistory() {
+        scope.launch {
+            dao.clearChatHistory()
             loadAllData()
         }
     }

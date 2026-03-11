@@ -13,9 +13,10 @@ import androidx.room.*
         UserInfoEntity::class,
         AiStudySummaryEntity::class,
         GeneratedReviewEntity::class,
-        AiStudyPlanEntity::class
+        AiStudyPlanEntity::class,
+        ChatMessageEntity::class
     ],
-    version = 22,
+    version = 23,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -124,4 +125,14 @@ interface CollegeDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveStudyPlan(plan: AiStudyPlanEntity)
+
+    // Chat History
+    @Query("SELECT * FROM chat_messages ORDER BY timestamp ASC")
+    suspend fun getAllChatMessages(): List<ChatMessageEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertChatMessage(message: ChatMessageEntity)
+
+    @Query("DELETE FROM chat_messages")
+    suspend fun clearChatHistory()
 }

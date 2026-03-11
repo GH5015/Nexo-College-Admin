@@ -112,3 +112,11 @@ data class AiStudyPlanEntity(
     val content: String,
     val lastUpdated: LocalDate
 )
+
+@Entity(tableName = "chat_messages")
+data class ChatMessageEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val text: String,
+    val isUser: Boolean,
+    val timestamp: Long = System.currentTimeMillis()
+)

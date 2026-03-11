@@ -10,7 +10,7 @@ import kotlinx.coroutines.withContext
 
 class AiAssistant(apiKey: String) {
     private val generativeModel = GenerativeModel(
-        modelName = "gemini-1.5-flash", // Versão estável com suporte multimodal
+        modelName = "gemini-3-flash-preview ", // Versão estável com suporte multimodal
         apiKey = apiKey
     )
 
