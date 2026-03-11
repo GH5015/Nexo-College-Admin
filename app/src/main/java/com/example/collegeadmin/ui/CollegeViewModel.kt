@@ -10,6 +10,7 @@ import com.example.collegeadmin.model.*
 import com.example.collegeadmin.data.local.AiStudySummaryEntity
 import com.example.collegeadmin.data.local.GeneratedReviewEntity
 import com.example.collegeadmin.data.local.AiStudyPlanEntity
+import com.example.collegeadmin.ai.AiAssistant
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -22,6 +23,13 @@ data class CalendarDay(
     val sessions: List<ClassSession>,
     val isPast: Boolean
 )
+
+sealed class AiMindMapState {
+    object Idle : AiMindMapState()
+    object Loading : AiMindMapState()
+    data class Success(val content: String) : AiMindMapState()
+    data class Error(val msg: String) : AiMindMapState()
+}
 
 class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() {
     val subjects: StateFlow<List<Subject>> = repository.subjects
@@ -36,17 +44,35 @@ class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() 
     private val _uiChatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val chatMessages: StateFlow<List<ChatMessage>> = _uiChatMessages.asStateFlow()
 
+    // State para Mapa Mental IA
+    private val _mindMapState = MutableStateFlow<AiMindMapState>(AiMindMapState.Idle)
+    val mindMapState: StateFlow<AiMindMapState> = _mindMapState.asStateFlow()
+
     init {
         // Initialize UI chat from persisted repository chat
         viewModelScope.launch {
             repository.chatMessages.collect { persistedMessages ->
-                // Only update from DB if we are not in the middle of a streaming session
-                // Or merge them carefully. For simplicity, just sync initially.
                 if (_uiChatMessages.value.isEmpty() || _uiChatMessages.value.size < persistedMessages.size) {
                     _uiChatMessages.value = persistedMessages
                 }
             }
         }
+    }
+
+    fun generateMindMap(assistant: AiAssistant, content: String) {
+        viewModelScope.launch {
+            _mindMapState.value = AiMindMapState.Loading
+            try {
+                val res = assistant.generateMindMap(content)
+                _mindMapState.value = AiMindMapState.Success(res)
+            } catch (e: Exception) {
+                _mindMapState.value = AiMindMapState.Error("Erro ao gerar mapa: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    fun resetMindMapState() {
+        _mindMapState.value = AiMindMapState.Idle
     }
 
     fun addChatMessage(text: String, isUser: Boolean, persist: Boolean = true) {
@@ -94,6 +120,26 @@ class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() 
         if (list.isEmpty()) 0.0
         else list.map { it.averageGrade }.average()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    // Cálculo da Retenção Média Global
+    val avgRetention: StateFlow<Double> = notes.map { list ->
+        if (list.isEmpty()) 0.0
+        else list.sumOf { it.retentionIndex } / list.size
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    // Histórico de Retenção (Últimas 4 semanas)
+    val retentionHistory: StateFlow<List<Double>> = notes.map { list ->
+        if (list.isEmpty()) listOf(0.0, 0.0, 0.0, 0.0)
+        else {
+            val today = LocalDate.now()
+            (0..3).map { weeksAgo ->
+                val start = today.minusWeeks(weeksAgo.toLong()).with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+                val end = start.plusDays(6)
+                val weekNotes = list.filter { !it.date.isBefore(start) && !it.date.isAfter(end) }
+                if (weekNotes.isEmpty()) 0.0 else weekNotes.map { it.retentionIndex }.average()
+            }.reversed() // Ordem cronológica
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf(0.0, 0.0, 0.0, 0.0))
 
     // Cálculo do Progresso do Semestre
     val semesterProgress: StateFlow<Float> = userInfo.map { info ->

@@ -1,12 +1,24 @@
 package com.example.collegeadmin.ui.screens
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.pdf.PdfDocument
+import android.net.Uri
+import android.os.Environment
+import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -29,6 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -40,6 +54,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.example.collegeadmin.ai.AiAssistant
 import com.example.collegeadmin.LocalIndicatorClick
@@ -51,11 +68,20 @@ import com.example.collegeadmin.ui.components.EmptyStatePlaceholder
 import com.example.collegeadmin.ui.components.HelpPopup
 import com.example.collegeadmin.ui.components.HelpItem
 import kotlinx.coroutines.launch
+import java.io.File
+import java.io.FileOutputStream
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
+
+sealed class AiMindMapState {
+    object Idle : AiMindMapState()
+    object Loading : AiMindMapState()
+    data class Success(val content: String) : AiMindMapState()
+    data class Error(val msg: String) : AiMindMapState()
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,6 +91,8 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
     val events by viewModel.events.collectAsState()
     val subjects by viewModel.subjects.collectAsState()
     val cr by viewModel.cr.collectAsState()
+    val avgRetention by viewModel.avgRetention.collectAsState()
+    val retentionHistory by viewModel.retentionHistory.collectAsState()
     val allPeriods by viewModel.allPeriods.collectAsState()
     val onMenuClick = LocalIndicatorClick.current
     
@@ -75,8 +103,7 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
     val apiKey = "AIzaSyAQMyzTBaQ8zBy7J_-sRF84zpbuPhZHyNU" 
     val assistant = remember { AiAssistant(apiKey) }
     
-    var aiMindMap by remember { mutableStateOf<String?>(null) }
-    var isAiLoading by remember { mutableStateOf(false) }
+    var mindMapState by remember { mutableStateOf<AiMindMapState>(AiMindMapState.Idle) }
     var showFullMap by remember { mutableStateOf(false) }
     
     var showSyncDialog by remember { mutableStateOf(false) }
@@ -137,13 +164,14 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        if (permissions[Manifest.permission.READ_CALENDAR] == true && permissions[Manifest.permission.WRITE_CALENDAR] == true) {
+        val allGranted = permissions.values.all { it }
+        if (allGranted) {
             availableCalendars = viewModel.getAvailableCalendars(context)
             if (availableCalendars.isNotEmpty()) {
-                if (!showUnsyncDialog) {
-                    showSyncDialog = true
-                }
+                if (!showUnsyncDialog) showSyncDialog = true else showUnsyncDialog = true
             }
+        } else {
+            Toast.makeText(context, "Permissões de calendário são necessárias.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -250,15 +278,52 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
                     val avgAbs = if(subjects.isNotEmpty()) subjects.sumOf { it.absences }.toDouble() / subjects.size else 0.0
                     ProfileStatCardPremium(modifier = Modifier.weight(1f), label = "Média Faltas", value = String.format(Locale.getDefault(), "%.1f", avgAbs), icon = Icons.Default.Warning, color = if(avgAbs > 5) Color(0xFFEF4444) else Color(0xFFF59E0B))
                     
-                    val avgRetention = if(notes.isNotEmpty()) notes.sumOf { it.retentionIndex } / notes.size else 0.0
-                    ProfileStatCardPremium(modifier = Modifier.weight(1f), label = "Nível Retenção", value = "${avgRetention.toInt()}%", icon = Icons.Default.Psychology, color = Color(0xFF10B981))
+                    Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Default.Psychology, null, tint = Color(0xFF10B981), modifier = Modifier.size(24.dp))
+                                SparklineChart(data = retentionHistory, color = Color(0xFF10B981), modifier = Modifier.size(40.dp, 24.dp))
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            Text("${avgRetention.toInt()}%", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Nível Retenção", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
                 }
             }
 
             item {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ActionButtonPremium(modifier = Modifier.weight(1f), label = "Novo Período", icon = Icons.Default.AddCircle, color = MaterialTheme.colorScheme.primary) { showNewPeriodDialog = true }
-                    ActionButtonPremium(modifier = Modifier.weight(1f), label = "Histórico", icon = Icons.Default.History, color = MaterialTheme.colorScheme.tertiary) { showHistoryDialog = true }
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(32.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.SettingsSuggest, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text("Gestão Acadêmica", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            ManagementItem(
+                                modifier = Modifier.weight(1f),
+                                label = "Novo Período",
+                                icon = Icons.Default.AddCircle,
+                                color = MaterialTheme.colorScheme.primary,
+                                onClick = { showNewPeriodDialog = true }
+                            )
+                            ManagementItem(
+                                modifier = Modifier.weight(1f),
+                                label = "Histórico",
+                                icon = Icons.Default.History,
+                                color = MaterialTheme.colorScheme.tertiary,
+                                onClick = { showHistoryDialog = true }
+                            )
+                        }
+                    }
                 }
             }
 
@@ -292,70 +357,85 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
                         
                         Spacer(Modifier.height(24.dp))
                         
-                        if (aiMindMap == null) {
-                            Text(
-                                "A IA analisará todas as suas anotações desta semana para criar uma estrutura lógica e visual do que você aprendeu.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 20.dp)
-                            )
-                            Button(
-                                onClick = { 
-                                    isAiLoading = true
-                                    scope.launch { 
-                                        aiMindMap = assistant.generateMindMap(weeklyNotes.joinToString("\n") { "${it.title}: ${it.content}" })
-                                        isAiLoading = false 
-                                    } 
-                                }, 
-                                enabled = !isAiLoading && weeklyNotes.isNotEmpty(), 
-                                modifier = Modifier.fillMaxWidth().height(54.dp), 
-                                shape = RoundedCornerShape(16.dp)
-                            ) {
-                                if (isAiLoading) {
-                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(12.dp))
-                                    Text("Analisando anotações...")
-                                } else {
+                        when (val state = mindMapState) {
+                            is AiMindMapState.Idle -> {
+                                Text(
+                                    "A IA analisará todas as suas anotações desta semana para criar uma estrutura lógica e visual do que você aprendeu.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 20.dp)
+                                )
+                                Button(
+                                    onClick = { 
+                                        mindMapState = AiMindMapState.Loading
+                                        scope.launch { 
+                                            try {
+                                                val res = assistant.generateMindMap(weeklyNotes.joinToString("\n") { "${it.title}: ${it.content}" })
+                                                mindMapState = AiMindMapState.Success(res)
+                                            } catch (e: Exception) {
+                                                mindMapState = AiMindMapState.Error("Não foi possível gerar o mapa. Verifique sua conexão.")
+                                            }
+                                        } 
+                                    }, 
+                                    enabled = weeklyNotes.isNotEmpty(), 
+                                    modifier = Modifier.fillMaxWidth().height(54.dp), 
+                                    shape = RoundedCornerShape(16.dp)
+                                ) {
                                     Icon(Icons.Default.Psychology, null)
                                     Spacer(Modifier.width(8.dp))
                                     Text("Gerar Mapa Mental ✨")
                                 }
-                            }
-                            if (weeklyNotes.isEmpty()) {
-                                Text(
-                                    "Adicione anotações nas aulas desta semana para habilitar.",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                    .clickable { showFullMap = true }
-                                    .padding(16.dp)
-                            ) {
-                                Column {
+                                if (weeklyNotes.isEmpty()) {
                                     Text(
-                                        text = aiMindMap!!, 
-                                        style = MaterialTheme.typography.bodySmall, 
-                                        lineHeight = 20.sp,
-                                        maxLines = 8,
-                                        overflow = TextOverflow.Ellipsis
+                                        "Adicione anotações nas aulas desta semana para habilitar.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
+                                        textAlign = TextAlign.Center
                                     )
+                                }
+                            }
+                            is AiMindMapState.Loading -> {
+                                Column(Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(modifier = Modifier.size(32.dp), color = MaterialTheme.colorScheme.primary)
                                     Spacer(Modifier.height(12.dp))
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        Text("Toque para ver tudo", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                        Row {
-                                            IconButton(onClick = { clipboardManager.setText(AnnotatedString(aiMindMap!!)) }) {
-                                                Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                                            }
-                                            IconButton(onClick = { aiMindMap = null }) {
-                                                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.outline)
+                                    Text("Nexo está processando suas anotações...", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            is AiMindMapState.Error -> {
+                                Column(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(state.msg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                                    TextButton(onClick = { mindMapState = AiMindMapState.Idle }) { Text("Tentar novamente") }
+                                }
+                            }
+                            is AiMindMapState.Success -> {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                                        .clickable { showFullMap = true }
+                                        .padding(16.dp)
+                                ) {
+                                    Column {
+                                        MindMapHierarchyView(
+                                            text = state.content,
+                                            maxLines = 8,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(Modifier.height(12.dp))
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                            Text("Toque para ver tudo", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                            Row {
+                                                IconButton(onClick = { 
+                                                    clipboardManager.setText(AnnotatedString(state.content))
+                                                    Toast.makeText(context, "Mapa Mental copiado!", Toast.LENGTH_SHORT).show()
+                                                }) {
+                                                    Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                                                }
+                                                IconButton(onClick = { mindMapState = AiMindMapState.Idle }) {
+                                                    Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.outline)
+                                                }
                                             }
                                         }
                                     }
@@ -373,7 +453,10 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
                     Button(
                         onClick = { 
                             showUnsyncDialog = false
-                            calendarPermissionLauncher.launch(arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)) 
+                            checkAndRequestCalendarPermission(context, {
+                                availableCalendars = viewModel.getAvailableCalendars(context)
+                                if (availableCalendars.isNotEmpty()) showSyncDialog = true
+                            }, calendarPermissionLauncher)
                         },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = RoundedCornerShape(16.dp),
@@ -387,7 +470,10 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
                     OutlinedButton(
                         onClick = { 
                             showUnsyncDialog = true
-                            calendarPermissionLauncher.launch(arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR))
+                            checkAndRequestCalendarPermission(context, {
+                                availableCalendars = viewModel.getAvailableCalendars(context)
+                                if (availableCalendars.isNotEmpty()) showUnsyncDialog = true
+                            }, calendarPermissionLauncher)
                         },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = RoundedCornerShape(16.dp),
@@ -405,7 +491,8 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
         }
     }
 
-    if (showFullMap && aiMindMap != null) {
+    if (showFullMap && mindMapState is AiMindMapState.Success) {
+        val content = (mindMapState as AiMindMapState.Success).content
         Dialog(
             onDismissRequest = { showFullMap = false },
             properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -424,8 +511,16 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
                             Icon(Icons.Default.Close, null)
                         }
                         Text("Mapa Mental Estruturado", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        IconButton(onClick = { clipboardManager.setText(AnnotatedString(aiMindMap!!)) }) {
-                            Icon(Icons.Default.ContentCopy, null)
+                        Row {
+                            IconButton(onClick = { exportMindMapPdf(context, content) }) {
+                                Icon(Icons.Default.PictureAsPdf, null, tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = { 
+                                clipboardManager.setText(AnnotatedString(content))
+                                Toast.makeText(context, "Texto copiado!", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Icon(Icons.Default.ContentCopy, null)
+                            }
                         }
                     }
                     
@@ -443,12 +538,9 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
                                 shape = RoundedCornerShape(24.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    text = aiMindMap!!,
-                                    modifier = Modifier.padding(24.dp),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    lineHeight = 26.sp
-                                )
+                                Column(modifier = Modifier.padding(24.dp)) {
+                                    MindMapHierarchyView(text = content)
+                                }
                             }
                             Spacer(Modifier.height(48.dp))
                         }
@@ -606,6 +698,119 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
     }
 }
 
+fun checkAndRequestCalendarPermission(
+    context: Context,
+    onPermissionGranted: () -> Unit,
+    launcher: ManagedActivityResultLauncher<Array<String>, Map<String, Boolean>>
+) {
+    val permissions = arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
+    val allGranted = permissions.all {
+        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+    }
+
+    if (allGranted) {
+        onPermissionGranted()
+    } else {
+        val activity = context as? Activity
+        val shouldShowRationale = permissions.any { 
+            activity?.let { act -> ActivityCompat.shouldShowRequestPermissionRationale(act, it) } ?: false
+        }
+
+        if (shouldShowRationale) {
+            Toast.makeText(context, "Precisamos de acesso ao calendário para sincronizar seus compromissos.", Toast.LENGTH_LONG).show()
+            launcher.launch(permissions)
+        } else {
+            // Pode estar negado permanentemente ou ser a primeira vez
+            launcher.launch(permissions)
+        }
+    }
+}
+
+@Composable
+fun ManagementItem(modifier: Modifier, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, onClick: () -> Unit) {
+    Surface(
+        modifier = modifier.clickable { onClick() },
+        shape = RoundedCornerShape(16.dp),
+        color = color.copy(alpha = 0.05f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.1f))
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = color)
+        }
+    }
+}
+
+@Composable
+fun SparklineChart(data: List<Double>, color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        if (data.size < 2) return@Canvas
+        
+        val path = Path()
+        val width = size.width
+        val height = size.height
+        val max = data.maxOrNull()?.toFloat()?.coerceAtLeast(100f) ?: 100f
+        val min = 0f
+        
+        val xStep = width / (data.size - 1)
+        
+        data.forEachIndexed { index, value ->
+            val x = index * xStep
+            val y = height - ((value.toFloat() - min) / (max - min) * height)
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(width = 2.dp.toPx())
+        )
+    }
+}
+
+@Composable
+fun MindMapHierarchyView(text: String, maxLines: Int = Int.MAX_VALUE, overflow: TextOverflow = TextOverflow.Clip) {
+    val lines = text.lines().filter { it.isNotBlank() }.let { 
+        if (maxLines != Int.MAX_VALUE && it.size > maxLines) it.take(maxLines) else it
+    }
+    
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        lines.forEach { line ->
+            val indentLevel = when {
+                line.contains("🧠") -> 0
+                line.contains("📁") -> 1
+                line.contains("🌿") -> 2
+                line.contains("🔹") -> 3
+                line.contains("💡") -> 3
+                else -> 0
+            }
+            
+            Row(modifier = Modifier.padding(start = (indentLevel * 16).dp)) {
+                Text(
+                    text = line.trim(),
+                    style = when(indentLevel) {
+                        0 -> MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black)
+                        1 -> MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                        else -> MaterialTheme.typography.bodySmall
+                    },
+                    color = when(indentLevel) {
+                        0 -> MaterialTheme.colorScheme.primary
+                        1 -> MaterialTheme.colorScheme.onSurface
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1,
+                    overflow = overflow
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun ProfileStatCardPremium(modifier: Modifier, label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color) {
     Surface(modifier = modifier, shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
@@ -720,5 +925,95 @@ fun AcademicTimelineWrapped(events: List<AcademicEvent>, notes: List<ClassNote>,
                 }
             }
         }
+    }
+}
+
+private fun exportMindMapPdf(context: Context, content: String) {
+    val pdfDocument = PdfDocument()
+    val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create() // A4
+    val page = pdfDocument.startPage(pageInfo)
+    val canvas: Canvas = page.canvas
+    val paint = Paint()
+
+    // Header Background
+    paint.color = android.graphics.Color.rgb(139, 92, 246) // Purple 600
+    canvas.drawRect(0f, 0f, 595f, 120f, paint)
+
+    // NEXO Logo
+    paint.color = android.graphics.Color.WHITE
+    paint.textSize = 28f
+    paint.isFakeBoldText = true
+    canvas.drawText("NEXO AI", 40f, 60f, paint)
+
+    paint.textSize = 12f
+    paint.isFakeBoldText = false
+    canvas.drawText("Mapa Mental Estruturado da Semana", 40f, 85f, paint)
+
+    // Body
+    paint.color = android.graphics.Color.BLACK
+    paint.textSize = 12f
+    
+    val margin = 40f
+    var yPos = 160f
+    val lineSpacing = 22f
+
+    content.lines().forEach { line ->
+        if (line.isBlank()) return@forEach
+        
+        val indentLevel = when {
+            line.contains("🧠") -> 0
+            line.contains("📁") -> 1
+            line.contains("🌿") -> 2
+            line.contains("🔹") -> 3
+            line.contains("💡") -> 3
+            else -> 0
+        }
+
+        paint.isFakeBoldText = indentLevel <= 1
+        paint.textSize = when(indentLevel) {
+            0 -> 18f
+            1 -> 14f
+            else -> 12f
+        }
+        
+        val xPos = margin + (indentLevel * 20f)
+        canvas.drawText(line.trim(), xPos, yPos, paint)
+        yPos += lineSpacing
+
+        if (yPos > 800f) return@forEach // Basic overflow protection
+    }
+
+    // Footer
+    paint.color = android.graphics.Color.GRAY
+    paint.textSize = 10f
+    paint.isFakeBoldText = false
+    canvas.drawText("Gerado automaticamente pelo College Admin - Nexo", margin, 820f, paint)
+
+    pdfDocument.finishPage(page)
+
+    val fileName = "Mapa_Mental_Nexo_${LocalDate.now()}.pdf"
+    val file = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), fileName)
+
+    try {
+        pdfDocument.writeTo(FileOutputStream(file))
+        pdfDocument.close()
+
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        
+        context.startActivity(Intent.createChooser(shareIntent, "Compartilhar Mapa Mental..."))
+
+    } catch (e: Exception) {
+        Toast.makeText(context, "Erro ao gerar PDF: ${e.message}", Toast.LENGTH_SHORT).show()
+        pdfDocument.close()
     }
 }
