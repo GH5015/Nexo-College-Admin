@@ -6,8 +6,10 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -49,6 +51,7 @@ fun OnboardingScreen(
     viewModel: CollegeViewModel,
     onComplete: (String, String, String, String, LocalDate, LocalDate) -> Unit
 ) {
+    var currentStep by remember { mutableIntStateOf(0) }
     var showHistoryScreen by remember { mutableStateOf(false) }
     
     var name by remember { mutableStateOf("") }
@@ -60,9 +63,13 @@ fun OnboardingScreen(
 
     val shifts = listOf("Manhã", "Tarde", "Noite")
 
-    // Validação em tempo real
+    // Validações
+    val isStep0Valid = name.isNotBlank() && course.isNotBlank() && periodName.isNotBlank()
     val isDatesValid = !endDate.isBefore(startDate)
-    val isFormValid = name.isNotBlank() && course.isNotBlank() && periodName.isNotBlank() && isDatesValid
+    
+    BackHandler(currentStep > 0 && !showHistoryScreen) {
+        currentStep--
+    }
 
     if (showHistoryScreen) {
         HistoryEntryScreen(
@@ -75,6 +82,7 @@ fun OnboardingScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
+            // Background Decoration
             Box(
                 modifier = Modifier
                     .size(300.dp)
@@ -94,178 +102,289 @@ fun OnboardingScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 28.dp)
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 Spacer(Modifier.height(60.dp))
 
-                Surface(
-                    modifier = Modifier.size(100.dp),
-                    shape = RoundedCornerShape(32.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.School, 
-                            null, 
-                            modifier = Modifier.size(48.dp), 
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
+                // Progress Bar
+                LinearProgressIndicator(
+                    progress = { (currentStep + 1) / 3f },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(CircleShape),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                )
+                
+                Spacer(Modifier.height(32.dp))
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "Seja bem-vindo", 
-                        style = MaterialTheme.typography.headlineLarge, 
-                        fontWeight = FontWeight.ExtraBold, 
-                        textAlign = TextAlign.Center
-                    )
-                    Text(
-                        "Vamos configurar seu perfil acadêmico", 
-                        style = MaterialTheme.typography.bodyLarge, 
-                        color = MaterialTheme.colorScheme.outline,
-                        textAlign = TextAlign.Center
-                    )
-                }
-
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                AnimatedContent(
+                    targetState = currentStep,
+                    transitionSpec = {
+                        if (targetState > initialState) {
+                            (slideInHorizontally { it } + fadeIn()).togetherWith(slideOutHorizontally { -it } + fadeOut())
+                        } else {
+                            (slideInHorizontally { -it } + fadeIn()).togetherWith(slideOutHorizontally { it } + fadeOut())
+                        }
+                    },
+                    label = "OnboardingStepTransition",
+                    modifier = Modifier.weight(1f)
+                ) { step ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(24.dp)
                     ) {
-                        Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.width(16.dp))
-                        Text(
-                            "Preencha seus dados para que a IA possa personalizar seu cronograma e lembretes.", 
-                            style = MaterialTheme.typography.bodySmall, 
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-
-                // Form Fields
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    OutlinedTextField(
-                        value = name, 
-                        onValueChange = { name = it }, 
-                        label = { Text("Seu nome completo") }, 
-                        placeholder = { Text("Como quer ser chamado?") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Person, null, modifier = Modifier.size(20.dp)) }
-                    )
-
-                    OutlinedTextField(
-                        value = course, 
-                        onValueChange = { course = it }, 
-                        label = { Text("Nome da Faculdade / Curso") }, 
-                        placeholder = { Text("Ex: Engenharia de Software - USP") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        singleLine = true
-                    )
-
-                    OutlinedTextField(
-                        value = periodName,
-                        onValueChange = { periodName = it },
-                        label = { Text("Nome do Semestre / Período") },
-                        placeholder = { Text("Ex: 1º Semestre 2024") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        singleLine = true
-                    )
-
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text("Turno das aulas", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.height(8.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            shifts.forEach { s ->
-                                val isSelected = shift == s
-                                Surface(
-                                    modifier = Modifier.weight(1f).height(48.dp).clickable { shift = s },
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = if (!isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)) else null,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(s, color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if(isSelected) FontWeight.Bold else FontWeight.Normal)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text("Duração do Período Letivo", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.height(8.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            DatePickerField(label = "Início das Aulas", date = startDate, modifier = Modifier.weight(1f)) { startDate = it }
-                            DatePickerField(label = "Fim das Aulas", date = endDate, modifier = Modifier.weight(1f)) { endDate = it }
-                        }
-                        if (!isDatesValid) {
-                            Text(
-                                "A data de fim não pode ser anterior ao início.",
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(top = 4.dp)
+                        when (step) {
+                            0 -> StepProfile(
+                                name = name, onNameChange = { name = it },
+                                course = course, onCourseChange = { course = it },
+                                shift = shift, onShiftChange = { shift = it },
+                                periodName = periodName, onPeriodChange = { periodName = it },
+                                shifts = shifts
+                            )
+                            1 -> StepCalendar(
+                                startDate = startDate, onStartChange = { startDate = it },
+                                endDate = endDate, onEndChange = { endDate = it },
+                                isDatesValid = isDatesValid
+                            )
+                            2 -> StepHistory(
+                                onAddHistory = { showHistoryScreen = true }
                             )
                         }
                     }
                 }
 
-                // History Section
-                OutlinedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                // Footer Buttons
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 40.dp, top = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Já possui histórico?", fontWeight = FontWeight.Bold)
-                            Text("Adicione matérias de períodos passados", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                        }
-                        Button(
-                            onClick = { showHistoryScreen = true },
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp)
+                    if (currentStep > 0) {
+                        OutlinedButton(
+                            onClick = { currentStep-- },
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = RoundedCornerShape(16.dp)
                         ) {
-                            Icon(Icons.Default.History, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Adicionar")
+                            Text("Voltar")
+                        }
+                    }
+                    
+                    Button(
+                        onClick = {
+                            if (currentStep < 2) {
+                                currentStep++
+                            } else {
+                                onComplete(name, course, shift, periodName, startDate, endDate)
+                            }
+                        },
+                        modifier = Modifier.weight(if (currentStep > 0) 1.5f else 1f).height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        enabled = when(currentStep) {
+                            0 -> isStep0Valid
+                            1 -> isDatesValid
+                            else -> true
+                        }
+                    ) {
+                        Text(
+                            if (currentStep < 2) "Próximo" else "Começar minha jornada",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StepProfile(
+    name: String, onNameChange: (String) -> Unit,
+    course: String, onCourseChange: (String) -> Unit,
+    shift: String, onShiftChange: (String) -> Unit,
+    periodName: String, onPeriodChange: (String) -> Unit,
+    shifts: List<String>
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Surface(
+            modifier = Modifier.size(80.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Person, null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Seu Perfil", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
+            Text("Conte-nos um pouco sobre você", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
+        }
+
+        OutlinedTextField(
+            value = name, onValueChange = onNameChange,
+            label = { Text("Seu nome completo") },
+            placeholder = { Text("Como quer ser chamado?") },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Person, null, modifier = Modifier.size(20.dp)) }
+        )
+
+        OutlinedTextField(
+            value = course, onValueChange = onCourseChange,
+            label = { Text("Nome da Faculdade / Curso") },
+            placeholder = { Text("Ex: Engenharia de Software - USP") },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.School, null, modifier = Modifier.size(20.dp)) }
+        )
+
+        OutlinedTextField(
+            value = periodName, onValueChange = onPeriodChange,
+            label = { Text("Nome do Semestre / Período") },
+            placeholder = { Text("Ex: 1º Semestre 2024") },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            singleLine = true
+        )
+
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text("Turno das aulas", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                shifts.forEach { s ->
+                    val isSelected = shift == s
+                    Surface(
+                        modifier = Modifier.weight(1f).height(48.dp).clickable { onShiftChange(s) },
+                        shape = RoundedCornerShape(14.dp),
+                        border = if (!isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)) else null,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(s, color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if(isSelected) FontWeight.Bold else FontWeight.Normal)
                         }
                     }
                 }
-
-                Spacer(Modifier.height(10.dp))
-
-                Button(
-                    onClick = {
-                        if (isFormValid) {
-                            onComplete(name, course, shift, periodName, startDate, endDate)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(60.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    enabled = isFormValid
-                ) {
-                    Text("Começar minha jornada", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-                
-                Spacer(Modifier.height(40.dp))
             }
         }
+    }
+}
+
+@Composable
+fun StepCalendar(
+    startDate: LocalDate, onStartChange: (LocalDate) -> Unit,
+    endDate: LocalDate, onEndChange: (LocalDate) -> Unit,
+    isDatesValid: Boolean
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Surface(
+            modifier = Modifier.size(80.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.CalendarMonth, null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.secondary)
+            }
+        }
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Seu Calendário", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
+            Text("Quando começam e terminam as aulas?", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
+        }
+
+        DatePickerField(label = "Início das Aulas", date = startDate, modifier = Modifier.fillMaxWidth()) { onStartChange(it) }
+        DatePickerField(label = "Fim das Aulas", date = endDate, modifier = Modifier.fillMaxWidth()) { onEndChange(it) }
+        
+        if (!isDatesValid) {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Error, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("A data de fim não pode ser anterior ao início.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+        
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.05f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f))
+        ) {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Lightbulb, null, tint = MaterialTheme.colorScheme.secondary)
+                Spacer(Modifier.width(16.dp))
+                Text("Isso ajuda a IA a organizar suas revisões semanais.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+            }
+        }
+    }
+}
+
+@Composable
+fun StepHistory(onAddHistory: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Surface(
+            modifier = Modifier.size(80.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.History, null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.tertiary)
+            }
+        }
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Seu Histórico", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
+            Text("Opcional: Importe notas de semestres passados", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
+        }
+
+        OutlinedCard(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f))
+        ) {
+            Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Icon(Icons.Default.AutoAwesome, null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(32.dp))
+                Text(
+                    "Deseja calcular seu CR Geral automaticamente?",
+                    textAlign = TextAlign.Center,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Ao adicionar seu histórico, o College Admin analisa seu desempenho total desde o início do curso.",
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                Button(
+                    onClick = onAddHistory,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                ) {
+                    Icon(Icons.Default.Add, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Adicionar Matérias")
+                }
+            }
+        }
+        
+        Text(
+            "Você também pode pular esta etapa e adicionar depois nas configurações de perfil.",
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(horizontal = 20.dp)
+        )
     }
 }
 
@@ -278,9 +397,7 @@ fun HistoryEntryScreen(
     var subjectName by remember { mutableStateOf("") }
     var professor by remember { mutableStateOf("") }
     var period by remember { mutableStateOf("") }
-    var p1 by remember { mutableStateOf("") }
-    var p2 by remember { mutableStateOf("") }
-    var pf by remember { mutableStateOf("") }
+    var averageGrade by remember { mutableStateOf("") }
     var absences by remember { mutableStateOf("0") }
     
     var isAiLoading by remember { mutableStateOf(false) }
@@ -308,11 +425,13 @@ fun HistoryEntryScreen(
                     val extracted: List<HistorySubjectResult> = Gson().fromJson(jsonResult, type)
                     
                     extracted.forEach { result ->
+                        val finalAvg = result.pf ?: listOfNotNull(result.p1, result.p2).average().takeIf { !it.isNaN() }
+                        
                         viewModel.addHistoricalSubject(
                             result.name, 
                             result.professor, 
                             period.ifBlank { "Importado" },
-                            result.p1, result.p2, result.pf, result.absences
+                            result.p1, result.p2, finalAvg, result.absences
                         )
                     }
                 } catch (e: Exception) {
@@ -324,9 +443,9 @@ fun HistoryEntryScreen(
         }
     }
 
-    // Sincronização direta com o banco de dados via ViewModel
     val allSubjects by viewModel.subjects.collectAsState()
     val subjectsInThisPeriod = allSubjects.filter { it.period == period && period.isNotBlank() }
+    val cr by viewModel.cr.collectAsState()
 
     Scaffold(
         topBar = {
@@ -353,10 +472,57 @@ fun HistoryEntryScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(24.dp)
+                .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            Spacer(Modifier.height(16.dp))
+            
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = when {
+                    cr >= 7.0 -> Color(0xFF10B981).copy(alpha = 0.1f)
+                    cr >= 5.0 -> Color(0xFFF59E0B).copy(alpha = 0.1f)
+                    else -> Color(0xFFEF4444).copy(alpha = 0.1f)
+                },
+                border = BorderStroke(1.dp, when {
+                    cr >= 7.0 -> Color(0xFF10B981).copy(alpha = 0.3f)
+                    cr >= 5.0 -> Color(0xFFF59E0B).copy(alpha = 0.3f)
+                    else -> Color(0xFFEF4444).copy(alpha = 0.3f)
+                })
+            ) {
+                Row(
+                    modifier = Modifier.padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("Seu CR Geral", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = String.format("%.2f", cr),
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Black,
+                            color = when {
+                                cr >= 7.0 -> Color(0xFF10B981)
+                                cr >= 5.0 -> Color(0xFFF59E0B)
+                                else -> Color(0xFFEF4444)
+                            }
+                        )
+                    }
+                    Icon(
+                        Icons.Default.Analytics,
+                        null,
+                        modifier = Modifier.size(40.dp),
+                        tint = when {
+                            cr >= 7.0 -> Color(0xFF10B981)
+                            cr >= 5.0 -> Color(0xFFF59E0B)
+                            else -> Color(0xFFEF4444)
+                        }.copy(alpha = 0.5f)
+                    )
+                }
+            }
+
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -394,38 +560,20 @@ fun HistoryEntryScreen(
             OutlinedTextField(
                 value = professor,
                 onValueChange = { professor = it },
-                label = { Text("Professor") },
+                label = { Text("Professor (Opcional)") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
-                    value = p1,
-                    onValueChange = { p1 = it },
-                    label = { Text("Nota P1") },
-                    modifier = Modifier.weight(1f),
+                    value = averageGrade,
+                    onValueChange = { averageGrade = it },
+                    label = { Text("Média Final") },
+                    modifier = Modifier.weight(1.5f),
                     shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                )
-                OutlinedTextField(
-                    value = p2,
-                    onValueChange = { p2 = it },
-                    label = { Text("Nota P2") },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                )
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = pf,
-                    onValueChange = { pf = it },
-                    label = { Text("Nota Final") },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    leadingIcon = { Icon(Icons.Default.Grade, null, modifier = Modifier.size(18.dp)) }
                 )
                 OutlinedTextField(
                     value = absences,
@@ -440,16 +588,15 @@ fun HistoryEntryScreen(
             Button(
                 onClick = {
                     if (subjectName.isNotBlank() && period.isNotBlank()) {
+                        val finalGrade = averageGrade.replace(",", ".").toDoubleOrNull()
                         viewModel.addHistoricalSubject(
                             subjectName, professor, period,
-                            p1.toDoubleOrNull(), p2.toDoubleOrNull(), pf.toDoubleOrNull(),
+                            null, null, finalGrade,
                             absences.toIntOrNull() ?: 0
                         )
                         subjectName = ""
                         professor = ""
-                        p1 = ""
-                        p2 = ""
-                        pf = ""
+                        averageGrade = ""
                         absences = "0"
                     }
                 },

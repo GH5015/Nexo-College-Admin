@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material.icons.filled.*
@@ -32,6 +34,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.collegeadmin.ai.AiAssistant
 import com.example.collegeadmin.LocalIndicatorClick
 import com.example.collegeadmin.model.*
@@ -118,7 +121,7 @@ fun SubjectsScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 IconButton(onClick = { showHelp = true }) {
-                                    Icon(Icons.Default.HelpOutline, "Ajuda", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
+                                    Icon(Icons.AutoMirrored.Filled.HelpOutline, "Ajuda", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
                                 }
                             }
                             Text(
@@ -326,7 +329,26 @@ fun SubjectCardPremium(subject: Subject, onEdit: () -> Unit, onDelete: () -> Uni
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                Text(subject.room, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+                
+                // Análise Preditiva Rápida no Card
+                val p1 = subject.p1Grade
+                if (p1 != null && subject.p2Grade == null) {
+                    val neededFor7 = (14.0 - p1).coerceIn(0.0, 10.0)
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            "Precisa de ${String.format("%.1f", neededFor7)} na P2",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+                } else if (p1 == null) {
+                    Text("Sem notas", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                }
             }
         }
     }
@@ -803,6 +825,46 @@ fun SubjectGradesTab(subject: Subject, viewModel: CollegeViewModel) {
     var pfDate by remember { mutableStateOf(subject.pfDate) }
 
     Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        // Bloco de Análise Preditiva
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Psychology, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Previsão de Aprovação", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(16.dp))
+                
+                val p1Val = p1.toDoubleOrNull() ?: 0.0
+                val p2Val = p2.toDoubleOrNull() ?: 0.0
+                
+                if (p1.isEmpty() && p2.isEmpty()) {
+                    Text("Insira suas notas para calcular quanto você precisa para passar.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else if (p1.isNotEmpty() && p2.isEmpty()) {
+                    val neededFor7 = (14.0 - p1Val).coerceIn(0.0, 10.0)
+                    val neededFor5 = (10.0 - p1Val).coerceIn(0.0, 10.0)
+                    
+                    Text("Você precisa de ${String.format("%.1f", neededFor7)} na P2 para passar direto (média 7.0).", fontWeight = FontWeight.Bold)
+                    Text("Mínimo de ${String.format("%.1f", neededFor5)} para ir para a Final (média 5.0).", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    val currentAvg = (p1Val + p2Val) / 2
+                    if (currentAvg >= 7.0) {
+                        Text("Parabéns! Sua média atual é ${String.format("%.1f", currentAvg)}. Você está aprovado!", color = Color(0xFF10B981), fontWeight = FontWeight.Bold)
+                    } else if (currentAvg >= 5.0) {
+                        val neededPF = (10.0 - currentAvg).coerceIn(0.0, 10.0)
+                        Text("Média atual: ${String.format("%.1f", currentAvg)}. Você precisará de ${String.format("%.1f", neededPF)} na Prova Final.", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold)
+                    } else {
+                        Text("Atenção! Sua média ${String.format("%.1f", currentAvg)} está abaixo do necessário para a final.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
         GradeInputCard(
             label = "Prova P1",
             grade = p1,
@@ -959,7 +1021,7 @@ fun SubjectEventsTab(subject: Subject, viewModel: CollegeViewModel) {
                             Column(Modifier.weight(1f)) {
                                 Text(ass.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
                                 Text(
-                                    text = ass.date.format(DateTimeFormatter.ofPattern("dd 'de' MMMM", Locale("pt", "BR"))),
+                                    text = ass.date.format(DateTimeFormatter.ofPattern("dd 'de' MMMM", Locale.forLanguageTag("pt-BR"))),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary
                                 )

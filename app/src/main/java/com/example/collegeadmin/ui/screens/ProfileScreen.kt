@@ -2,7 +2,6 @@ package com.example.collegeadmin.ui.screens
 
 import android.Manifest
 import android.content.Intent
-import android.provider.CalendarContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,9 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.automirrored.filled.Assignment
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -38,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -49,12 +47,11 @@ import com.example.collegeadmin.calendar.CalendarAccount
 import com.example.collegeadmin.model.*
 import com.example.collegeadmin.ui.CollegeViewModel
 import com.example.collegeadmin.ui.components.ScreenIndicator
+import com.example.collegeadmin.ui.components.EmptyStatePlaceholder
 import com.example.collegeadmin.ui.components.HelpPopup
 import com.example.collegeadmin.ui.components.HelpItem
 import kotlinx.coroutines.launch
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
@@ -67,6 +64,8 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
     val notes by viewModel.notes.collectAsState()
     val events by viewModel.events.collectAsState()
     val subjects by viewModel.subjects.collectAsState()
+    val cr by viewModel.cr.collectAsState()
+    val allPeriods by viewModel.allPeriods.collectAsState()
     val onMenuClick = LocalIndicatorClick.current
     
     val context = LocalContext.current
@@ -124,7 +123,10 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
                     Color(0xFFF59E0B)
                 )
             ),
-            onDismiss = { showHelp = false }
+            onDismiss = { 
+                showHelp = false 
+                viewModel.setShowHelp(false)
+            }
         )
     }
 
@@ -168,7 +170,7 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
                         )
                         Spacer(Modifier.width(8.dp))
                         IconButton(onClick = { showHelp = true }) {
-                            Icon(Icons.Default.HelpOutline, "Ajuda", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
+                            Icon(Icons.AutoMirrored.Filled.HelpOutline, "Ajuda", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
                         }
                     }
                     Spacer(Modifier.height(24.dp))
@@ -206,10 +208,47 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
                 }
             }
 
+            // Card Principal de CR
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(32.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 4.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(24.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("Coeficiente de Rendimento (CR)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+                            Text(
+                                text = String.format(Locale.getDefault(), "%.2f", cr),
+                                style = MaterialTheme.typography.headlineLarge,
+                                fontWeight = FontWeight.Black,
+                                color = when {
+                                    cr >= 7.0 -> Color(0xFF10B981)
+                                    cr >= 5.0 -> Color(0xFFF59E0B)
+                                    else -> Color(0xFFEF4444)
+                                }
+                            )
+                        }
+                        Box(
+                            modifier = Modifier.size(56.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Analytics, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                        }
+                    }
+                }
+            }
+
             item {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     val avgAbs = if(subjects.isNotEmpty()) subjects.sumOf { it.absences }.toDouble() / subjects.size else 0.0
-                    ProfileStatCardPremium(modifier = Modifier.weight(1f), label = "Média Faltas", value = String.format("%.1f", avgAbs), icon = Icons.Default.Warning, color = if(avgAbs > 5) Color(0xFFEF4444) else Color(0xFFF59E0B))
+                    ProfileStatCardPremium(modifier = Modifier.weight(1f), label = "Média Faltas", value = String.format(Locale.getDefault(), "%.1f", avgAbs), icon = Icons.Default.Warning, color = if(avgAbs > 5) Color(0xFFEF4444) else Color(0xFFF59E0B))
                     
                     val avgRetention = if(notes.isNotEmpty()) notes.sumOf { it.retentionIndex } / notes.size else 0.0
                     ProfileStatCardPremium(modifier = Modifier.weight(1f), label = "Nível Retenção", value = "${avgRetention.toInt()}%", icon = Icons.Default.Psychology, color = Color(0xFF10B981))
@@ -306,7 +345,7 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
                                         style = MaterialTheme.typography.bodySmall, 
                                         lineHeight = 20.sp,
                                         maxLines = 8,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                     Spacer(Modifier.height(12.dp))
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -482,7 +521,88 @@ fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
     }
     
     if (showHistoryDialog) {
-        AlertDialog(onDismissRequest = { showHistoryDialog = false }, confirmButton = { Button(onClick = { showHistoryDialog = false }) { Text("Fechar") } }, title = { Text("Histórico") }, text = { Text("Suas conquistas de períodos passados aparecerão aqui.") })
+        ModalBottomSheet(
+            onDismissRequest = { showHistoryDialog = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
+            containerColor = MaterialTheme.colorScheme.background
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Histórico Geral", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                    Surface(
+                        color = when {
+                            cr >= 7.0 -> Color(0xFF10B981)
+                            cr >= 5.0 -> Color(0xFFF59E0B)
+                            else -> Color(0xFFEF4444)
+                        }.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = "CR: ${String.format(Locale.getDefault(), "%.2f", cr)}",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = when {
+                                cr >= 7.0 -> Color(0xFF10B981)
+                                cr >= 5.0 -> Color(0xFFF59E0B)
+                                else -> Color(0xFFEF4444)
+                            }
+                        )
+                    }
+                }
+                
+                Spacer(Modifier.height(24.dp))
+                
+                if (allPeriods.isEmpty()) {
+                    EmptyStatePlaceholder("Nenhum período registrado no histórico.")
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        allPeriods.forEach { period ->
+                            item {
+                                Text(period, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.height(8.dp))
+                                val periodSubjects = subjects.filter { it.period == period }
+                                periodSubjects.forEach { sub ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(sub.name, fontWeight = FontWeight.Bold)
+                                                Text(sub.professor, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                            }
+                                            Column(horizontalAlignment = Alignment.End) {
+                                                Text(
+                                                    text = String.format(Locale.getDefault(), "%.1f", sub.averageGrade),
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = if(sub.averageGrade >= 7.0) Color(0xFF10B981) else if(sub.averageGrade >= 5.0) Color(0xFFF59E0B) else Color(0xFFEF4444)
+                                                )
+                                                Text("Média Final", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                            }
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -600,24 +720,5 @@ fun AcademicTimelineWrapped(events: List<AcademicEvent>, notes: List<ClassNote>,
                 }
             }
         }
-    }
-}
-
-@Composable
-fun ChatBubbleItem(message: ChatMessage) {
-    val align = if (message.isUser) Alignment.CenterEnd else Alignment.CenterStart
-    val col = if (message.isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = align) {
-        Surface(color = col, shape = RoundedCornerShape(12.dp)) {
-            Text(message.text, modifier = Modifier.padding(8.dp), color = if(message.isUser) Color.White else Color.Black)
-        }
-    }
-}
-
-@Composable
-fun SummaryStat(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
     }
 }
