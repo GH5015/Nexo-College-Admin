@@ -1,0 +1,242 @@
+package com.example.collegeadmin.ui
+
+import android.content.Context
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.collegeadmin.calendar.CalendarAccount
+import com.example.collegeadmin.calendar.CalendarSyncHelper
+import com.example.collegeadmin.data.CollegeRepository
+import com.example.collegeadmin.model.*
+import com.example.collegeadmin.data.local.AiStudySummaryEntity
+import com.example.collegeadmin.data.local.GeneratedReviewEntity
+import com.example.collegeadmin.data.local.AiStudyPlanEntity
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.LocalTime
+
+class CollegeViewModel(private val repository: CollegeRepository) : ViewModel() {
+    val subjects: StateFlow<List<Subject>> = repository.subjects
+    val sessions: StateFlow<List<ClassSession>> = repository.sessions
+    val events: StateFlow<List<AcademicEvent>> = repository.events
+    val tasks: StateFlow<List<RoutineTask>> = repository.tasks
+    val notes: StateFlow<List<ClassNote>> = repository.notes
+    val userInfo: StateFlow<UserInfo?> = repository.userInfo
+    val allPeriods: StateFlow<List<String>> = repository.allPeriods
+
+    // Cálculo do CR (Coeficiente de Rendimento) Global
+    val cr: StateFlow<Double> = subjects.map { list ->
+        if (list.isEmpty()) 0.0
+        else list.map { it.averageGrade }.average()
+    }.asStateFlow(0.0)
+
+    private fun <T> kotlinx.coroutines.flow.Flow<T>.asStateFlow(initialValue: T): StateFlow<T> {
+        val flow = MutableStateFlow(initialValue)
+        viewModelScope.launch {
+            this@asStateFlow.collect { flow.value = it }
+        }
+        return flow.asStateFlow()
+    }
+
+    private val _selectedSession = MutableStateFlow<ClassSession?>(null)
+    val selectedSession: StateFlow<ClassSession?> = _selectedSession.asStateFlow()
+
+    private val _selectedDate = MutableStateFlow<LocalDate?>(null)
+    val selectedDate: StateFlow<LocalDate?> = _selectedDate.asStateFlow()
+
+    private val _isDarkMode = MutableStateFlow<Boolean?>(null) // null means follow system
+    val isDarkMode: StateFlow<Boolean?> = _isDarkMode.asStateFlow()
+
+    fun toggleDarkMode(enabled: Boolean?) {
+        _isDarkMode.value = enabled
+    }
+
+    fun setShowHelp(show: Boolean) {
+        repository.updateShowHelp(show)
+    }
+
+    fun setSelectedSession(session: ClassSession?, date: LocalDate? = null) {
+        _selectedSession.value = session
+        _selectedDate.value = date
+    }
+
+    fun saveUserInfo(name: String, course: String, shift: String, period: String, start: LocalDate, end: LocalDate) {
+        repository.saveUserInfo(name, course, shift, period, start, end)
+    }
+    
+    fun startNewPeriod(newPeriodName: String, start: LocalDate, end: LocalDate) {
+        repository.startNewPeriod(newPeriodName, start, end)
+    }
+
+    fun updateProfilePicture(uri: String) {
+        repository.updateProfilePicture(uri)
+    }
+
+    fun addSubject(
+        name: String, 
+        professor: String, 
+        room: String, 
+        totalClasses: Int,
+        dayOfWeek: Int,
+        startTime: LocalTime,
+        endTime: LocalTime
+    ) {
+        repository.addSubject(name, professor, room, totalClasses, dayOfWeek, startTime, endTime)
+    }
+
+    fun addHistoricalSubject(
+        name: String, 
+        professor: String, 
+        period: String, 
+        p1: Double?, 
+        p2: Double?, 
+        pf: Double?, 
+        absences: Int
+    ) {
+        repository.addHistoricalSubject(name, professor, period, p1, p2, pf, absences)
+    }
+
+    fun editSubject(id: String, name: String, professor: String, room: String, totalClasses: Int) {
+        repository.editSubject(id, name, professor, room, totalClasses)
+    }
+
+    fun deleteSubject(id: String) {
+        repository.deleteSubject(id)
+    }
+
+    fun addAbsence(subjectId: String) {
+        repository.addAbsence(subjectId)
+    }
+
+    fun removeAbsence(subjectId: String) {
+        repository.removeAbsence(subjectId)
+    }
+
+    fun updateGrades(
+        subjectId: String, 
+        p1: Double?, p1Date: LocalDate?, 
+        p2: Double?, p2Date: LocalDate?, 
+        pf: Double?, pfDate: LocalDate?
+    ) {
+        repository.updateGrades(subjectId, p1, p1Date, p2, p2Date, pf, pfDate)
+    }
+
+    fun addAssignment(subjectId: String, title: String, date: LocalDate, type: EventType) {
+        repository.addAssignment(subjectId, title, date, type)
+    }
+
+    fun deleteAssignment(id: String) {
+        repository.deleteAssignment(id)
+    }
+
+    fun toggleTask(taskId: String) {
+        repository.toggleTask(taskId)
+    }
+
+    fun addTask(title: String, description: String) {
+        repository.addTask(title, description)
+    }
+
+    fun deleteTask(taskId: String) {
+        repository.deleteTask(taskId)
+    }
+
+    fun saveNote(id: String?, subjectId: String, sessionId: String? = null, title: String, content: String, date: LocalDate, attachments: List<String>, difficulty: Difficulty = Difficulty.MEDIUM) {
+        repository.saveNote(id, subjectId, sessionId, title, content, date, attachments, difficulty)
+    }
+    
+    fun deleteNote(id: String) {
+        repository.deleteNote(id)
+    }
+
+    fun getAvailableCalendars(context: Context): List<CalendarAccount> {
+        return CalendarSyncHelper(context).getAvailableCalendars()
+    }
+
+    fun syncToCalendar(context: Context, calendarId: Long, syncClasses: Boolean) {
+        val syncHelper = CalendarSyncHelper(context)
+        
+        events.value.forEach { event ->
+            syncHelper.syncEvent(event, calendarId)
+        }
+        
+        if (syncClasses) {
+            sessions.value.forEach { session ->
+                syncHelper.syncSession(session, calendarId)
+            }
+        }
+    }
+
+    fun unsyncCalendar(context: Context, calendarId: Long) {
+        CalendarSyncHelper(context).unsyncCalendar(calendarId)
+    }
+    
+    private val _historySubjects = MutableStateFlow<List<Subject>>(emptyList())
+    val historySubjects: StateFlow<List<Subject>> = _historySubjects.asStateFlow()
+    
+    fun loadHistory(period: String) {
+        viewModelScope.launch {
+            _historySubjects.value = repository.getHistoryForPeriod(period)
+        }
+    }
+
+    // IA - Resumos de Prova
+    fun getStudySummary(examId: String, onResult: (AiStudySummaryEntity?) -> Unit) {
+        viewModelScope.launch {
+            onResult(repository.getStudySummary(examId))
+        }
+    }
+
+    fun saveStudySummary(examId: String, summary: String, explanations: List<Pair<String, String>>, userNotes: String) {
+        viewModelScope.launch {
+            repository.saveStudySummary(AiStudySummaryEntity(examId, summary, explanations, userNotes))
+        }
+    }
+
+    // IA - Revisões Diárias
+    fun getGeneratedReview(id: String, onResult: (GeneratedReviewEntity?) -> Unit) {
+        viewModelScope.launch {
+            onResult(repository.getGeneratedReview(id))
+        }
+    }
+
+    fun saveGeneratedReview(review: GeneratedReviewEntity) {
+        viewModelScope.launch {
+            repository.saveGeneratedReview(review)
+        }
+    }
+
+    fun deleteGeneratedReview(id: String) {
+        viewModelScope.launch {
+            repository.deleteGeneratedReview(id)
+        }
+    }
+
+    fun updateNoteDifficulty(subjectId: String, title: String, newDifficulty: Difficulty) {
+        viewModelScope.launch {
+            repository.updateNoteDifficulty(subjectId, title, newDifficulty)
+        }
+    }
+
+    fun updateNoteReviewAfterQuiz(subjectId: String, title: String, isCorrect: Boolean) {
+        viewModelScope.launch {
+            repository.updateNoteReviewAfterQuiz(subjectId, title, isCorrect)
+        }
+    }
+
+    // IA - Plano de Estudo
+    fun getStudyPlan(onResult: (AiStudyPlanEntity?) -> Unit) {
+        viewModelScope.launch {
+            onResult(repository.getStudyPlan())
+        }
+    }
+
+    fun saveStudyPlan(content: String) {
+        viewModelScope.launch {
+            repository.saveStudyPlan(AiStudyPlanEntity(content = content, lastUpdated = LocalDate.now()))
+        }
+    }
+}

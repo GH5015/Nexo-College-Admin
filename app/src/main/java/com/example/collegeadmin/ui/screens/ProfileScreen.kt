@@ -1,0 +1,623 @@
+package com.example.collegeadmin.ui.screens
+
+import android.Manifest
+import android.content.Intent
+import android.provider.CalendarContract
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.NoteAdd
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
+import com.example.collegeadmin.ai.AiAssistant
+import com.example.collegeadmin.LocalIndicatorClick
+import com.example.collegeadmin.calendar.CalendarAccount
+import com.example.collegeadmin.model.*
+import com.example.collegeadmin.ui.CollegeViewModel
+import com.example.collegeadmin.ui.components.ScreenIndicator
+import com.example.collegeadmin.ui.components.HelpPopup
+import com.example.collegeadmin.ui.components.HelpItem
+import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
+import java.util.Locale
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProfileScreen(viewModel: CollegeViewModel, paddingValues: PaddingValues) {
+    val userInfo by viewModel.userInfo.collectAsState()
+    val notes by viewModel.notes.collectAsState()
+    val events by viewModel.events.collectAsState()
+    val subjects by viewModel.subjects.collectAsState()
+    val onMenuClick = LocalIndicatorClick.current
+    
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
+    
+    val apiKey = "AIzaSyAQMyzTBaQ8zBy7J_-sRF84zpbuPhZHyNU" 
+    val assistant = remember { AiAssistant(apiKey) }
+    
+    var aiMindMap by remember { mutableStateOf<String?>(null) }
+    var isAiLoading by remember { mutableStateOf(false) }
+    var showFullMap by remember { mutableStateOf(false) }
+    
+    var showSyncDialog by remember { mutableStateOf(false) }
+    var showUnsyncDialog by remember { mutableStateOf(false) }
+    var availableCalendars by remember { mutableStateOf<List<CalendarAccount>>(emptyList()) }
+    
+    var showNewPeriodDialog by remember { mutableStateOf(false) }
+    var showHistoryDialog by remember { mutableStateOf(false) }
+    
+    var showHelp by remember { mutableStateOf(false) }
+
+    LaunchedEffect(userInfo?.showHelp) {
+        if (userInfo?.showHelp == true) {
+            showHelp = true
+        }
+    }
+
+    if (showHelp) {
+        HelpPopup(
+            title = "Seu Perfil",
+            helpItems = listOf(
+                HelpItem(
+                    "Visão Geral",
+                    "Acompanhe suas estatísticas de faltas e retenção de conteúdo. Edite sua foto e curso a qualquer momento.",
+                    Icons.Default.Person,
+                    MaterialTheme.colorScheme.primary
+                ),
+                HelpItem(
+                    "Jornada Semanal",
+                    "Navegue pela linha do tempo para ver seu progresso semana a semana durante o período letivo.",
+                    Icons.Default.Timeline,
+                    Color(0xFF10B981)
+                ),
+                HelpItem(
+                    "Mapa Mental IA",
+                    "Gere um mapa mental automático com tudo que você aprendeu na semana para visualizar e conectar ideias.",
+                    Icons.Default.Psychology,
+                    Color(0xFF8B5CF6)
+                ),
+                HelpItem(
+                    "Sincronia com Agenda",
+                    "Sincronize ou remova seus eventos acadêmicos com o Google Agenda para não perder nenhum prazo.",
+                    Icons.Default.Sync,
+                    Color(0xFFF59E0B)
+                )
+            ),
+            onDismiss = { showHelp = false }
+        )
+    }
+
+    val today = LocalDate.now()
+    val startOfWeek = today.with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+    val weeklyNotes = notes.filter { !it.date.isBefore(startOfWeek) }
+
+    val calendarPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions[Manifest.permission.READ_CALENDAR] == true && permissions[Manifest.permission.WRITE_CALENDAR] == true) {
+            availableCalendars = viewModel.getAvailableCalendars(context)
+            if (availableCalendars.isNotEmpty()) {
+                if (!showUnsyncDialog) {
+                    showSyncDialog = true
+                }
+            }
+        }
+    }
+
+    val photoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let { 
+            try { context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { }
+            viewModel.updateProfilePicture(it.toString()) 
+        }
+    }
+    
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(paddingValues).padding(horizontal = 20.dp), 
+            horizontalAlignment = Alignment.CenterHorizontally, 
+            verticalArrangement = Arrangement.spacedBy(28.dp)
+        ) {
+            item {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(top = 24.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ScreenIndicator(
+                            label = "Perfil", 
+                            color = MaterialTheme.colorScheme.primary,
+                            onClick = onMenuClick
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        IconButton(onClick = { showHelp = true }) {
+                            Icon(Icons.Default.HelpOutline, "Ajuda", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                    Spacer(Modifier.height(24.dp))
+                    
+                    val primaryBrush = Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary))
+                    
+                    Box(contentAlignment = Alignment.BottomEnd) {
+                        Surface(
+                            modifier = Modifier.size(130.dp).padding(4.dp).clickable { photoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                            shape = CircleShape,
+                            border = BorderStroke(3.dp, primaryBrush),
+                            color = MaterialTheme.colorScheme.surface
+                        ) {
+                            if (userInfo?.profilePictureUri != null) {
+                                AsyncImage(model = userInfo?.profilePictureUri, contentDescription = "Perfil", modifier = Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
+                            } else {
+                                Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, null, modifier = Modifier.size(70.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)) }
+                            }
+                        }
+                        Surface(modifier = Modifier.size(36.dp), shape = CircleShape, color = MaterialTheme.colorScheme.secondary, shadowElevation = 6.dp) {
+                            Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Edit, null, modifier = Modifier.size(18.dp), tint = Color.White) }
+                        }
+                    }
+                    
+                    Spacer(Modifier.height(20.dp))
+                    Text(text = userInfo?.name ?: "Futuro Graduado", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
+                    
+                    Surface(color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f), shape = RoundedCornerShape(30.dp)) {
+                        Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.School, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text(text = userInfo?.course ?: "Curso não definido", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            item {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    val avgAbs = if(subjects.isNotEmpty()) subjects.sumOf { it.absences }.toDouble() / subjects.size else 0.0
+                    ProfileStatCardPremium(modifier = Modifier.weight(1f), label = "Média Faltas", value = String.format("%.1f", avgAbs), icon = Icons.Default.Warning, color = if(avgAbs > 5) Color(0xFFEF4444) else Color(0xFFF59E0B))
+                    
+                    val avgRetention = if(notes.isNotEmpty()) notes.sumOf { it.retentionIndex } / notes.size else 0.0
+                    ProfileStatCardPremium(modifier = Modifier.weight(1f), label = "Nível Retenção", value = "${avgRetention.toInt()}%", icon = Icons.Default.Psychology, color = Color(0xFF10B981))
+                }
+            }
+
+            item {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ActionButtonPremium(modifier = Modifier.weight(1f), label = "Novo Período", icon = Icons.Default.AddCircle, color = MaterialTheme.colorScheme.primary) { showNewPeriodDialog = true }
+                    ActionButtonPremium(modifier = Modifier.weight(1f), label = "Histórico", icon = Icons.Default.History, color = MaterialTheme.colorScheme.tertiary) { showHistoryDialog = true }
+                }
+            }
+
+            item { AcademicTimelineWrapped(events, notes, userInfo) }
+
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(), 
+                    shape = RoundedCornerShape(32.dp), 
+                    color = MaterialTheme.colorScheme.surface, 
+                    tonalElevation = 3.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(24.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)), 
+                                contentAlignment = Alignment.Center
+                            ) { 
+                                Icon(Icons.Default.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp)) 
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Mapa Mental da Semana", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text("Sintetize seus estudos com IA", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                            }
+                        }
+                        
+                        Spacer(Modifier.height(24.dp))
+                        
+                        if (aiMindMap == null) {
+                            Text(
+                                "A IA analisará todas as suas anotações desta semana para criar uma estrutura lógica e visual do que você aprendeu.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 20.dp)
+                            )
+                            Button(
+                                onClick = { 
+                                    isAiLoading = true
+                                    scope.launch { 
+                                        aiMindMap = assistant.generateMindMap(weeklyNotes.joinToString("\n") { "${it.title}: ${it.content}" })
+                                        isAiLoading = false 
+                                    } 
+                                }, 
+                                enabled = !isAiLoading && weeklyNotes.isNotEmpty(), 
+                                modifier = Modifier.fillMaxWidth().height(54.dp), 
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                if (isAiLoading) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(12.dp))
+                                    Text("Analisando anotações...")
+                                } else {
+                                    Icon(Icons.Default.Psychology, null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Gerar Mapa Mental ✨")
+                                }
+                            }
+                            if (weeklyNotes.isEmpty()) {
+                                Text(
+                                    "Adicione anotações nas aulas desta semana para habilitar.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                                    .clickable { showFullMap = true }
+                                    .padding(16.dp)
+                            ) {
+                                Column {
+                                    Text(
+                                        text = aiMindMap!!, 
+                                        style = MaterialTheme.typography.bodySmall, 
+                                        lineHeight = 20.sp,
+                                        maxLines = 8,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    Spacer(Modifier.height(12.dp))
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Toque para ver tudo", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                        Row {
+                                            IconButton(onClick = { clipboardManager.setText(AnnotatedString(aiMindMap!!)) }) {
+                                                Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                            IconButton(onClick = { aiMindMap = null }) {
+                                                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.outline)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Google Agenda", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+                    
+                    Button(
+                        onClick = { 
+                            showUnsyncDialog = false
+                            calendarPermissionLauncher.launch(arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)) 
+                        },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Sync, null)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Sincronizar Agora", fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = { 
+                            showUnsyncDialog = true
+                            calendarPermissionLauncher.launch(arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR))
+                        },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
+                    ) {
+                        Icon(Icons.Default.SyncDisabled, null)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Dessincronizar Eventos", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            
+            item { Spacer(modifier = Modifier.height(100.dp)) }
+        }
+    }
+
+    if (showFullMap && aiMindMap != null) {
+        Dialog(
+            onDismissRequest = { showFullMap = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        IconButton(onClick = { showFullMap = false }) {
+                            Icon(Icons.Default.Close, null)
+                        }
+                        Text("Mapa Mental Estruturado", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        IconButton(onClick = { clipboardManager.setText(AnnotatedString(aiMindMap!!)) }) {
+                            Icon(Icons.Default.ContentCopy, null)
+                        }
+                    }
+                    
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    
+                    SelectionContainer {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState())
+                                .padding(24.dp)
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                shape = RoundedCornerShape(24.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = aiMindMap!!,
+                                    modifier = Modifier.padding(24.dp),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    lineHeight = 26.sp
+                                )
+                            }
+                            Spacer(Modifier.height(48.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showSyncDialog) {
+        AlertDialog(
+            onDismissRequest = { showSyncDialog = false },
+            title = { Text("Escolha a Agenda") },
+            text = {
+                Column {
+                    Text("Selecione qual conta do Google deseja sincronizar os compromissos acadêmicos:")
+                    Spacer(Modifier.height(16.dp))
+                    availableCalendars.forEach { cal ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                viewModel.syncToCalendar(context, cal.id, true)
+                                showSyncDialog = false
+                            }.padding(vertical = 8.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(cal.name, fontWeight = FontWeight.Bold)
+                                Text(cal.email, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showSyncDialog = false }) { Text("Fechar") } }
+        )
+    }
+
+    if (showUnsyncDialog) {
+        AlertDialog(
+            onDismissRequest = { showUnsyncDialog = false },
+            title = { Text("Remover da Agenda") },
+            text = {
+                Column {
+                    Text("Escolha de qual conta deseja remover os eventos do College Admin:")
+                    Spacer(Modifier.height(16.dp))
+                    availableCalendars.forEach { cal ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                viewModel.unsyncCalendar(context, cal.id)
+                                showUnsyncDialog = false
+                            }.padding(vertical = 8.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(cal.name, fontWeight = FontWeight.Bold)
+                                Text(cal.email, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showUnsyncDialog = false }) { Text("Cancelar") } }
+        )
+    }
+
+    if (showNewPeriodDialog) {
+        AlertDialog(onDismissRequest = { showNewPeriodDialog = false }, confirmButton = { Button(onClick = { showNewPeriodDialog = false }) { Text("Entendido") } }, title = { Text("Novo Semestre") }, text = { Text("Esta função prepara seu app para o próximo desafio acadêmico.") })
+    }
+    
+    if (showHistoryDialog) {
+        AlertDialog(onDismissRequest = { showHistoryDialog = false }, confirmButton = { Button(onClick = { showHistoryDialog = false }) { Text("Fechar") } }, title = { Text("Histórico") }, text = { Text("Suas conquistas de períodos passados aparecerão aqui.") })
+    }
+}
+
+@Composable
+fun ProfileStatCardPremium(modifier: Modifier, label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color) {
+    Surface(modifier = modifier, shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Icon(icon, null, tint = color, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.height(12.dp))
+            Text(value, fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        }
+    }
+}
+
+@Composable
+fun ActionButtonPremium(modifier: Modifier, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, onClick: () -> Unit) {
+    Surface(modifier = modifier.height(90.dp).clickable { onClick() }, shape = RoundedCornerShape(24.dp), color = color.copy(alpha = 0.1f), border = BorderStroke(1.dp, color.copy(alpha = 0.2f))) {
+        Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, null, tint = color)
+            Spacer(Modifier.height(8.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = color)
+        }
+    }
+}
+
+@Composable
+fun AcademicTimelineWrapped(events: List<AcademicEvent>, notes: List<ClassNote>, userInfo: UserInfo?) {
+    if (userInfo == null) return
+
+    val today = LocalDate.now()
+    val totalWeeks = ChronoUnit.WEEKS.between(userInfo.periodStart, userInfo.periodEnd).toInt().coerceAtLeast(1)
+    val currentWeek = ChronoUnit.WEEKS.between(userInfo.periodStart, today).toInt().coerceIn(0, totalWeeks - 1)
+
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Status da Jornada", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(8.dp))
+            Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(8.dp)) {
+                Text(
+                    "Semana ${currentWeek + 1} de $totalWeeks", 
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+        }
+        
+        Spacer(Modifier.height(16.dp))
+        
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(end = 20.dp)
+        ) {
+            items(totalWeeks) { weekIdx ->
+                val weekStart = userInfo.periodStart.plusWeeks(weekIdx.toLong())
+                val weekEnd = weekStart.plusDays(6)
+                
+                val weekNotes = notes.count { !it.date.isBefore(weekStart) && !it.date.isAfter(weekEnd) }
+                val weekEvents = events.count { !it.date.isBefore(weekStart) && !it.date.isAfter(weekEnd) }
+                
+                val isCurrent = weekIdx == currentWeek
+                val isPast = weekIdx < currentWeek
+                
+                val cardColor = when {
+                    isCurrent -> MaterialTheme.colorScheme.primaryContainer
+                    isPast -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    else -> MaterialTheme.colorScheme.surface
+                }
+
+                val borderColor = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Transparent
+
+                Card(
+                    modifier = Modifier.width(180.dp).height(140.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = cardColor),
+                    border = if (isCurrent) BorderStroke(2.dp, borderColor) else null,
+                    elevation = CardDefaults.cardElevation(defaultElevation = if (isCurrent) 4.dp else 1.dp)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "SEMANA ${weekIdx + 1}", 
+                                style = MaterialTheme.typography.labelMedium, 
+                                fontWeight = FontWeight.Black, 
+                                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (isPast) {
+                                Spacer(Modifier.width(4.dp))
+                                Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
+                            }
+                        }
+                        
+                        Text(
+                            "${weekStart.format(DateTimeFormatter.ofPattern("dd/MM"))} - ${weekEnd.format(DateTimeFormatter.ofPattern("dd/MM"))}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        
+                        Spacer(Modifier.weight(1f))
+                        
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.AutoMirrored.Filled.NoteAdd, null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(6.6.dp))
+                                Text("$weekNotes anotações", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Event, null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.secondary)
+                                Spacer(Modifier.width(6.6.dp))
+                                Text("$weekEvents compromissos", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChatBubbleItem(message: ChatMessage) {
+    val align = if (message.isUser) Alignment.CenterEnd else Alignment.CenterStart
+    val col = if (message.isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = align) {
+        Surface(color = col, shape = RoundedCornerShape(12.dp)) {
+            Text(message.text, modifier = Modifier.padding(8.dp), color = if(message.isUser) Color.White else Color.Black)
+        }
+    }
+}
+
+@Composable
+fun SummaryStat(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+    }
+}
